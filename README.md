@@ -13,6 +13,11 @@ In addition to adding *deferred updates*, this plugin also includes these change
 1. `ko.computed` prevents recursive calls to itself.
 2. `ko.computed`, when accessed, will always return the latest value. Previously, computed observables that use throttling would return a stale value if the scheduled update hadn’t occurred yet. With this change, when a computed observable with a pending update is accessed, the update will occur immediately and the scheduled update will be canceled. This change affect computed observable that use either *throttle* or *defer* and thus improves the *throttle* feature when *throttled* computed observables depend on other *throttled* ones.
 
+Examples:
+
+* [Nested Computed with plugin](http://mbest.github.com/knockout-deferred-updates/examples/nested-computed-plugin.html)
+* [Nested Computed without plugin](http://mbest.github.com/knockout-deferred-updates/examples/nested-computed-noplugin.html)
+
 Here are the new interfaces in this plugin:
 
 1. `ko.tasks`
