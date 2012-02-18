@@ -1,4 +1,4 @@
-// Deferred Notifications plugin for Knockout http://knockoutjs.com/
+// Deferred Updates plugin for Knockout http://knockoutjs.com/
 // (c) Michael Best, Steven Sanderson
 // License: MIT (http://www.opensource.org/licenses/mit-license.php)
 
@@ -76,8 +76,8 @@ ko.tasks = (function() {
         }
     };
 
-    ko.evaluateAsynchronously = function(evaluator) {
-        return window[setImmediate](tasks.makeProcessedEvaluator(evaluator));
+    ko.evaluateAsynchronously = function(evaluator, timeout) {
+        return window[timeout ? setImmediate : 'setTimeout'](tasks.makeProcessedCallback(evaluator), timeout);
     }
 
     return tasks;
@@ -161,7 +161,6 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
 
     var evaluationTimeoutInstance = null;
     function evaluatePossiblyAsync() {
-        //console.log("evaluatePossiblyAsync " + _latestValue + '; ibe=' + _isBeingEvaluated + '; ne=' + _needsEvaluation);
         if (_isBeingEvaluated)
             return;
         _needsEvaluation = true;
@@ -176,7 +175,6 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     }
 
     function evaluateImmediate() {
-        //console.log("evaluateImmediate " + _latestValue + '; ibe=' + _isBeingEvaluated + '; ne=' + _needsEvaluation);
         if (_isBeingEvaluated || !_needsEvaluation)
             return;
 
@@ -265,8 +263,8 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     }
 
     // Set properties of returned function
-    ko.utils.extend(dependentObservable, newComputed.fn);
     ko.subscribable.call(dependentObservable);
+    ko.utils.extend(dependentObservable, newComputed.fn);
 
     dependentObservable[getDependenciesCountName] = dependentObservable.getDependenciesCount = function () { return _subscriptionsToDependencies.length; };
     dependentObservable[hasWriteFunctionName] = dependentObservable.hasWriteFunction = typeof writeFunction === "function";
