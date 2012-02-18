@@ -258,7 +258,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         ko.utils.domNodeDisposal.addDisposeCallback(disposeWhenNodeIsRemoved, dispose);
         var existingDisposeWhenFunction = disposeWhen;
         disposeWhen = function () {
-            return !ko.utils['nodeInDocName'](disposeWhenNodeIsRemoved) || existingDisposeWhenFunction();
+            return !ko.utils[nodeInDocName](disposeWhenNodeIsRemoved) || existingDisposeWhenFunction();
         }
     }
 
