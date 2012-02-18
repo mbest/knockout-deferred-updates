@@ -27,6 +27,7 @@ Here are the new interfaces in this plugin:
 2. `ko.computed`
    * `ko.computed.deferUpdates` is a boolean property. It’s set to *true* initially, making all computed observables use deferred updates. Set it to *false* to turn off global deferred updates.
    * `deferUpdates` is a boolean property of each computed observable instance; setting it to *true* forces that observable to use deferred updates even if the global setting is *false*.
+3. `ko.evaluateAsynchronously` is a function that takes two parameters: First a function to call, and second (optionally) a time-out value in milliseconds (the same as `setTimeout`). It will use `setImmediate` if the time-out value is zero or missing and `setTimeout` otherwise. It uses `ko.tasks.makeProcessedCallback` to call `ko.tasks.processImmediate` with the provided function.
 
 Michael Best
 https://github.com/mbest/
