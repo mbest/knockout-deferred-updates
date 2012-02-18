@@ -1,4 +1,4 @@
-**Deferred Notifications** plugin for [Knockout](http://knockoutjs.com/)
+**Deferred Updates** plugin for [Knockout](http://knockoutjs.com/)
 
 This plugin/patch replaces `ko.computed` (and `ko.dependentObservable`) with a new version that supports **deferred updates**. Unlike the *throttle* feature, which schedules each update using individual `setTimeout` calls, *defer* schedules all updates to run together and eliminates duplicate updates.
 
@@ -11,7 +11,7 @@ This plugin/patch replaces `ko.computed` (and `ko.dependentObservable`) with a n
 In addition to adding *deferred updates*, this plugin also includes these changes to `ko.computed`:
 
 1. `ko.computed` prevents recursive calls to itself.
-2. `ko.computed`, when accessed, will always return the latest value. Previously, computed observables that use throttling would return a stale value if the scheduled update hadn’t occurred yet. With this change, when a computed observable with a pending update is accessed, the update will occur immediately and the scheduled update will be canceled. This change affect computed observable that use either *throttle* or *defer* and thus improves the *throttle* feature when *throttled* computed observables depend on other *throttled* ones.
+2. `ko.computed`, when accessed, will always return the latest value. Previously, computed observables that use throttling would return a stale value if the scheduled update hadn’t occurred yet. With this change, when a computed observable with a pending update is accessed, the update will occur immediately and the scheduled update will be canceled. This change affects computed observables that use either *throttle* or *defer* and thus improves the *throttle* feature when *throttled* computed observables depend on other *throttled* ones.
 
 Examples:
 
@@ -27,7 +27,7 @@ Here are the new interfaces in this plugin:
 2. `ko.computed`
    * `ko.computed.deferUpdates` is a boolean property. It’s set to *true* initially, making all computed observables use deferred updates. Set it to *false* to turn off global deferred updates.
    * `deferUpdates` is a boolean property of each computed observable instance; setting it to *true* forces that observable to use deferred updates even if the global setting is *false*.
-3. `ko.evaluateAsynchronously` is a function that takes two parameters: First a function to call, and second (optionally) a time-out value in milliseconds (the same as `setTimeout`). It will use `setImmediate` if the time-out value is zero or missing and `setTimeout` otherwise. It uses `ko.tasks.makeProcessedCallback` to call `ko.tasks.processImmediate` with the provided function.
+3. `ko.evaluateAsynchronously` is a replacement for `setTimeout` that will use `setImmediate` (if available) if the *timeout* value is zero or missing. Also, the provided callback function will be called within `ko.tasks.processImmediate`.
 
 Michael Best
 https://github.com/mbest/
