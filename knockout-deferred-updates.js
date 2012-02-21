@@ -164,6 +164,9 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         if (_isBeingEvaluated)
             return;
         _needsEvaluation = true;
+        dependentObservable["notifySubscribers"](_latestValue, "dirty");
+        if (!_needsEvaluation)  // The notification might have triggered an evaluation
+            return;
         var throttleEvaluationTimeout = dependentObservable['throttleEvaluation'];
         if (throttleEvaluationTimeout && throttleEvaluationTimeout >= 0) {
             clearTimeout(evaluationTimeoutInstance);
@@ -172,6 +175,12 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
             ko.tasks.processDelayed(evaluateImmediate);
         else
             evaluateImmediate();
+    }
+
+    function addDependency(subscribable) {
+        var event = (subscribable[koProtoName] === newComputed) ? "dirty" : "change";
+        _subscriptionsToDependencies.push(subscribable.subscribe(evaluatePossiblyAsync, null, event));
+        
     }
 
     function evaluateImmediate() {
@@ -187,9 +196,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         _isBeingEvaluated = true;
         try {
             disposeAllSubscriptionsToDependencies();
-            depDet[depDetBeginName](function(subscribable) {
-                _subscriptionsToDependencies.push(subscribable.subscribe(evaluatePossiblyAsync));
-            });
+            depDet[depDetBeginName](addDependency);
             var newValue = readFunction.call(evaluatorFunctionTarget);
             dependentObservable["notifySubscribers"](_latestValue, "beforeChange");
             _latestValue = newValue;
@@ -205,9 +212,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     function evaluateInitial() {
         _isBeingEvaluated = true;
         try {
-            depDet[depDetBeginName](function(subscribable) {
-                _subscriptionsToDependencies.push(subscribable.subscribe(evaluatePossiblyAsync));
-            });
+            depDet[depDetBeginName](addDependency);
             _latestValue = readFunction.call(evaluatorFunctionTarget);
         } finally {
             depDet.end();
