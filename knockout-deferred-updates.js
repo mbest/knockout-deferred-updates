@@ -256,7 +256,14 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     function set() {
         if (typeof writeFunction === "function") {
             // Writing a value
+            // Turn off deferred updates for this observable during the write so that the 'write' is registered
+            // immediately (assuming that the read function accesses any observables that are written to).
+            var saveDeferValue = dependentObservable.deferUpdates;
+            dependentObservable.deferUpdates = false;
+
             writeFunction.apply(evaluatorFunctionTarget, arguments);
+
+            dependentObservable.deferUpdates = saveDeferValue;
         } else {
             throw new Error("Cannot write a value to a ko.computed unless you specify a 'write' option. If you wish to read the current value, don't pass any parameters.");
         }
@@ -321,28 +328,25 @@ oldComputed = computedProto = null;
 ko.extenders['throttle'] = function(target, timeout) {
     // Throttling means two things:
 
-    // (1) For writable targets (observables, or writable dependent observables), we throttle *writes*
-    //     so the target cannot change value synchronously or faster than a certain rate
     if (ko.isWriteableObservable(target)) {
+        // (1) For writable targets (observables, or writable dependent observables), we throttle *writes*
+        //     so the target cannot change value synchronously or faster than a certain rate
         var writeTimeoutInstance = null;
-        var originalTarget = target;
-        target = ko.dependentObservable({
-            'read': originalTarget,
+        return ko.dependentObservable({
+            'read': target,
             'write': function(value) {
                 clearTimeout(writeTimeoutInstance);
                 writeTimeoutInstance = ko.evaluateAsynchronously(function() {
-                    originalTarget(value);
+                    target(value);
                 }, timeout);
             }
         });
-        target.deferUpdates = false;
     } else {
         // (2) For dependent observables, we throttle *evaluations* so that, no matter how fast its dependencies
         //     notify updates, the target doesn't re-evaluate (and hence doesn't notify) faster than a certain rate
         target['throttleEvaluation'] = timeout;
+        return target;
     }
-
-    return target;
 };
 
 })(ko);
