@@ -190,9 +190,6 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         if (_isBeingEvaluated)
             return;
         _needsEvaluation = true;
-        dependentObservable["notifySubscribers"](_latestValue, "dirty");
-        if (!_needsEvaluation)  // The notification might have triggered an evaluation
-            return;
         var throttleEvaluationTimeout = dependentObservable['throttleEvaluation'];
         if (throttleEvaluationTimeout && throttleEvaluationTimeout >= 0) {
             clearTimeout(evaluationTimeoutInstance);
@@ -201,6 +198,9 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
             ko.tasks.processDelayed(evaluateImmediate, true, disposeWhenNodeIsRemoved);
         else
             evaluateImmediate();
+        dependentObservable["notifySubscribers"](_latestValue, "dirty");
+        if (!_needsEvaluation && throttleEvaluationTimeout)  // The notification might have triggered an evaluation
+            clearTimeout(evaluationTimeoutInstance);
     }
 
     function addDependency(subscribable) {
