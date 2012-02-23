@@ -12,6 +12,7 @@ In addition to adding *deferred updates*, this plugin also includes these change
 
 1. `ko.computed` prevents recursive calls to itself.
 2. `ko.computed`, when accessed, will always return the latest value. Previously, computed observables that use throttling would return a stale value if the scheduled update hadn’t occurred yet. With this change, when a computed observable with a pending update is accessed, the update will occur immediately and the scheduled update will be canceled. This change affects computed observables that use either *throttle* or *defer* and thus improves the *throttle* feature when *throttled* computed observables depend on other *throttled* ones.
+3. The *throttle* extender will *either* delay evaluations or delay writes (but not both) based on whether the target observable is writable.
 
 Examples:
 
@@ -26,12 +27,13 @@ Here are the new interfaces in this plugin:
    * `makeProcessedCallback` takes a single parameter, a function, and will return a new function that calls your function within `processImmediate`, passing along `this` and any arguments. This makes it easy to make existing callback functions (such as event handlers) use `processImmediate`.
 2. `ko.computed`
    * `ko.computed.deferUpdates` is a boolean property. It’s set to *true* initially, making all computed observables use deferred updates. Set it to *false* to turn off global deferred updates.
-   * `deferUpdates` is a boolean property of each computed observable instance; setting it to *true* forces that observable to use deferred updates even if the global setting is *false*.
-3. `ko.evaluateAsynchronously` is a replacement for `setTimeout` that will use `setImmediate` (if available) if the *timeout* value is zero or missing. Also, the provided callback function will be called within `ko.tasks.processImmediate`.
+   * `deferUpdates` is a boolean property of each computed observable instance; if set to *true* or *false*, it will override the global setting for that computed observable.
+3. `ko.evaluateAsynchronously` is a replacement for `setTimeout` that will call the provided callback function within `ko.tasks.processImmediate`.
+4. `ko.processDeferredBindingUpdatesForNode` and `ko.processAllDeferredBindingUpdates` provide a way to update the UI immediately. The first takes a *node* parameter and only processes updates for the specified node. The second processes all pending UI updates. You could use these functions if you have code that updates observables and then does direct DOM access, expecting it to be updated. Alternatively, you could wrap your observable updates in a call to `ko.tasks.processImmediate` (see above).
 
 Notes:
 
-* *Knockout* uses `ko.computed` internally to handle updates to bindings (so that updating an observable updates the UI). Because this plugin affects all computed observables, it defers binding updates too. This could be an advantage (fewer UI updates if bindings have multiple dependencies) or a disadvantage (slightly delayed updates).
+* *Knockout* uses `ko.computed` internally to handle updates to bindings (so that updating an observable updates the UI). Because this plugin affects all computed observables, it defers binding updates too. This could be an advantage (fewer UI updates if bindings have multiple dependencies) or a disadvantage (slightly delayed updates). It also mean that this plugin will break code that assumes that the UI is updated immediately; that code will have to be modified to use either `processImmediate` to wrap the observable updates or one of the `DeferredBindingUpdates` functions before any direct DOM access.
 
 Michael Best
 https://github.com/mbest/

@@ -28,7 +28,7 @@ ko.tasks = (function() {
             for (var i = start || 0; i < evaluatorsArray.length; i++) {
                 if (!start)
                     indexProcessing = i;
-                var evaluator = evaluatorsArray[i];
+                var evaluator = evaluatorsArray[i].evaluator;
                 evaluator();
             }
         } finally {
@@ -48,6 +48,13 @@ ko.tasks = (function() {
         processEvaluators();
     }
 
+    function isEvaluatorDuplicate(evaluator) {
+        for (var i = indexProcessing || 0, j = evaluatorsArray.length; i < j; i++)
+            if (evaluatorsArray[i].evaluator == evaluator)
+                return true;
+        return false;
+    }
+
     var tasks = {
         processImmediate: function(evaluator, object, args) {
             pushTaskState();
@@ -58,12 +65,12 @@ ko.tasks = (function() {
             }
         },
 
-        processDelayed: function(evaluator, distinct) {
-            if ((distinct || distinct === undefined) && ko.utils.arrayIndexOf(evaluatorsArray, evaluator, indexProcessing) >= 0) {
+        processDelayed: function(evaluator, distinct, node) {
+            if ((distinct || distinct === undefined) && isEvaluatorDuplicate(evaluator)) {
                 // Don't add evaluator if distinct is set (or missing) and evaluator is already in list
                 return;
             }
-            evaluatorsArray.push(evaluator);
+            evaluatorsArray.push({evaluator: evaluator, node: node});
             if (!taskStack.length && indexProcessing === undefined && !evaluatorHandler) {
                 evaluatorHandler = window[setImmediate](processEvaluatorsCallback);
             }
@@ -76,9 +83,27 @@ ko.tasks = (function() {
         }
     };
 
+    ko.processDeferredBindingUpdatesForNode = function(node) {
+        for (var i = 0, j = evaluatorsArray.length; i < j; i++) {
+            if (evaluatorsArray[i].node == node) {
+                var evaluator = evaluatorsArray[i].evaluator;
+                evaluator();
+            }
+        }
+    };
+
+    ko.processAllDeferredBindingUpdates = function(node) {
+        for (var i = 0, j = evaluatorsArray.length; i < j; i++) {
+            if (evaluatorsArray[i].node) {
+                var evaluator = evaluatorsArray[i].evaluator;
+                evaluator();
+            }
+        }
+    };
+
     ko.evaluateAsynchronously = function(evaluator, timeout) {
-        return window[timeout ? setImmediate : 'setTimeout'](tasks.makeProcessedCallback(evaluator), timeout);
-    }
+        return setTimeout(tasks.makeProcessedCallback(evaluator), timeout);
+    };
 
     return tasks;
 })();
@@ -157,6 +182,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
             subscription.dispose();
         });
         _subscriptionsToDependencies = [];
+        _needsEvaluation = false;
     }
 
     var evaluationTimeoutInstance = null;
@@ -170,9 +196,9 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         var throttleEvaluationTimeout = dependentObservable['throttleEvaluation'];
         if (throttleEvaluationTimeout && throttleEvaluationTimeout >= 0) {
             clearTimeout(evaluationTimeoutInstance);
-            evaluationTimeoutInstance = setTimeout(evaluateImmediate, throttleEvaluationTimeout);
-        } else if (newComputed.deferUpdates || dependentObservable.deferUpdates)
-            ko.tasks.processDelayed(evaluateImmediate);
+            evaluationTimeoutInstance = ko.evaluateAsynchronously(evaluateImmediate, throttleEvaluationTimeout);
+        } else if ((newComputed.deferUpdates && dependentObservable.deferUpdates !== false) || dependentObservable.deferUpdates)
+            ko.tasks.processDelayed(evaluateImmediate, true, disposeWhenNodeIsRemoved);
         else
             evaluateImmediate();
     }
@@ -180,7 +206,6 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     function addDependency(subscribable) {
         var event = (subscribable[koProtoName] === newComputed) ? "dirty" : "change";
         _subscriptionsToDependencies.push(subscribable.subscribe(evaluatePossiblyAsync, null, event));
-        
     }
 
     function evaluateImmediate() {
@@ -289,5 +314,35 @@ ko[computedName] = ko.computed = ko.dependentObservable = newComputed;
 
 // Clear objects references we don't need anymore
 oldComputed = computedProto = null;
+
+/*
+ * New throttle extender
+ */
+ko.extenders['throttle'] = function(target, timeout) {
+    // Throttling means two things:
+
+    // (1) For writable targets (observables, or writable dependent observables), we throttle *writes*
+    //     so the target cannot change value synchronously or faster than a certain rate
+    if (ko.isWriteableObservable(target)) {
+        var writeTimeoutInstance = null;
+        var originalTarget = target;
+        target = ko.dependentObservable({
+            'read': originalTarget,
+            'write': function(value) {
+                clearTimeout(writeTimeoutInstance);
+                writeTimeoutInstance = ko.evaluateAsynchronously(function() {
+                    originalTarget(value);
+                }, timeout);
+            }
+        });
+        target.deferUpdates = false;
+    } else {
+        // (2) For dependent observables, we throttle *evaluations* so that, no matter how fast its dependencies
+        //     notify updates, the target doesn't re-evaluate (and hence doesn't notify) faster than a certain rate
+        target['throttleEvaluation'] = timeout;
+    }
+
+    return target;
+};
 
 })(ko);
