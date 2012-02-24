@@ -28,8 +28,8 @@ ko.tasks = (function() {
             for (var i = start || 0; i < evaluatorsArray.length; i++) {
                 if (!start)
                     indexProcessing = i;
-                var evaluator = evaluatorsArray[i].evaluator;
-                evaluator();
+                var evObj = evaluatorsArray[i], evaluator = evObj.evaluator;
+                evaluator.apply(evObj.object, evObj.args || []);
             }
         } finally {
             if (start) {
@@ -65,12 +65,12 @@ ko.tasks = (function() {
             }
         },
 
-        processDelayed: function(evaluator, distinct, node) {
+        processDelayed: function(evaluator, distinct, extras) {
             if ((distinct || distinct === undefined) && isEvaluatorDuplicate(evaluator)) {
                 // Don't add evaluator if distinct is set (or missing) and evaluator is already in list
                 return;
             }
-            evaluatorsArray.push({evaluator: evaluator, node: node});
+            evaluatorsArray.push(ko.utils.extend({evaluator: evaluator}, extras || {}));
             if (!taskStack.length && indexProcessing === undefined && !evaluatorHandler) {
                 evaluatorHandler = window[setImmediate](processEvaluatorsCallback);
             }
@@ -149,6 +149,41 @@ var oldComputed = ko.computed,
 // Find ko.utils.domNodeIsAttachedToDocument
 var nodeInDocName = findNameMethodSignatureContaining(ko.utils, 'document)');
 
+// Find the name of the ko.subscribable.fn.subscribe function
+var subFnObj = ko.subscribable.fn,
+    subFnName = findNameMethodSignatureContaining(subFnObj, '.bind(');
+
+/*
+ * Add ko.ignoreDependencies 
+ */
+ko.ignoreDependencies = function(callback, object, args) {
+    try {
+        depDet[depDetBeginName](function() {});
+        return callback.apply(object, args || []);
+    } finally {
+        depDet.end();
+    }
+}
+
+/*
+ * Replace ko.subscribable.fn.subscribe with one where change event are deferred
+ */
+subFnObj.oldSubscribe = subFnObj[subFnName];    // Save old subscribe function
+subFnObj[subFnName] = function (callback, callbackTarget, event, deferUpdates) {
+    if (callback.toString().indexOf('throttleEvaluation') === -1) {
+        var newCallback = function(valueToNotify) {
+            if (((newComputed.deferUpdates && deferUpdates !== false) || deferUpdates) && (!event || event == 'change'))
+                ko.tasks.processDelayed(callback, false, {object: callbackTarget, args: [valueToNotify]}); 
+            else
+                ko.ignoreDependencies(callback, callbackTarget, [valueToNotify]);
+        };
+        return this.oldSubscribe(newCallback, undefined, event);
+    } else {
+        return this.oldSubscribe(callback, callbackTarget, event);
+    }
+}
+
+
 /*
  * New ko.computed with support for deferred updates (and other fixes)
  */
@@ -187,15 +222,13 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
 
     var evaluationTimeoutInstance = null;
     function evaluatePossiblyAsync() {
-        if (_isBeingEvaluated)
-            return;
         _needsEvaluation = true;
         var throttleEvaluationTimeout = dependentObservable['throttleEvaluation'];
         if (throttleEvaluationTimeout && throttleEvaluationTimeout >= 0) {
             clearTimeout(evaluationTimeoutInstance);
             evaluationTimeoutInstance = ko.evaluateAsynchronously(evaluateImmediate, throttleEvaluationTimeout);
         } else if ((newComputed.deferUpdates && dependentObservable.deferUpdates !== false) || dependentObservable.deferUpdates)
-            ko.tasks.processDelayed(evaluateImmediate, true, disposeWhenNodeIsRemoved);
+            ko.tasks.processDelayed(evaluateImmediate, true, {node: disposeWhenNodeIsRemoved});
         else
             evaluateImmediate();
         dependentObservable["notifySubscribers"](_latestValue, "dirty");
