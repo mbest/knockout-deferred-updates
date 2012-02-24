@@ -48,10 +48,13 @@ ko.tasks = (function() {
         processEvaluators();
     }
 
-    function isEvaluatorDuplicate(evaluator) {
+    function isEvaluatorDuplicate(evaluator, extras) {
         for (var i = indexProcessing || 0, j = evaluatorsArray.length; i < j; i++)
-            if (evaluatorsArray[i].evaluator == evaluator)
+            if (evaluatorsArray[i].evaluator == evaluator) {
+                if (extras)
+                    ko.utils.extend(evaluatorsArray[i], extras);
                 return true;
+            }
         return false;
     }
 
@@ -66,7 +69,7 @@ ko.tasks = (function() {
         },
 
         processDelayed: function(evaluator, distinct, extras) {
-            if ((distinct || distinct === undefined) && isEvaluatorDuplicate(evaluator)) {
+            if ((distinct || distinct === undefined) && isEvaluatorDuplicate(evaluator, extras)) {
                 // Don't add evaluator if distinct is set (or missing) and evaluator is already in list
                 return;
             }
@@ -154,7 +157,7 @@ var subFnObj = ko.subscribable.fn,
     subFnName = findNameMethodSignatureContaining(subFnObj, '.bind(');
 
 /*
- * Add ko.ignoreDependencies 
+ * Add ko.ignoreDependencies
  */
 ko.ignoreDependencies = function(callback, object, args) {
     try {
@@ -173,7 +176,7 @@ subFnObj[subFnName] = function (callback, callbackTarget, event, deferUpdates) {
     if (callback.toString().indexOf('throttleEvaluation') === -1) {
         var newCallback = function(valueToNotify) {
             if (((newComputed.deferUpdates && deferUpdates !== false) || deferUpdates) && (!event || event == 'change'))
-                ko.tasks.processDelayed(callback, false, {object: callbackTarget, args: [valueToNotify]}); 
+                ko.tasks.processDelayed(callback, false, {object: callbackTarget, args: [valueToNotify]});
             else
                 ko.ignoreDependencies(callback, callbackTarget, [valueToNotify]);
         };
@@ -231,9 +234,12 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
             ko.tasks.processDelayed(evaluateImmediate, true, {node: disposeWhenNodeIsRemoved});
         else
             evaluateImmediate();
-        dependentObservable["notifySubscribers"](_latestValue, "dirty");
-        if (!_needsEvaluation && throttleEvaluationTimeout)  // The notification might have triggered an evaluation
-            clearTimeout(evaluationTimeoutInstance);
+
+        if (dependentObservable["notifySubscribers"]) {
+            dependentObservable["notifySubscribers"](_latestValue, "dirty");
+            if (!_needsEvaluation && throttleEvaluationTimeout)  // The notification might have triggered an evaluation
+                clearTimeout(evaluationTimeoutInstance);
+        }
     }
 
     function addDependency(subscribable) {
@@ -310,6 +316,9 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         return _latestValue;
     }
 
+    // Need to set disposeWhenNodeIsRemoved here in case we get a notification during the the initial evaluation
+    var disposeWhenNodeIsRemoved = (typeof options["disposeWhenNodeIsRemoved"] == "object") ? options["disposeWhenNodeIsRemoved"] : null;
+
     if (options['deferEvaluation'] !== true)
         evaluateInitial();
 
@@ -318,7 +327,6 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     // Build "disposeWhenNodeIsRemoved" and "disposeWhenNodeIsRemovedCallback" option values
     // (Note: "disposeWhenNodeIsRemoved" option both proactively disposes as soon as the node is removed using ko.removeNode(),
     // plus adds a "disposeWhen" callback that, on each evaluation, disposes if the node was removed by some other means.)
-    var disposeWhenNodeIsRemoved = (typeof options["disposeWhenNodeIsRemoved"] == "object") ? options["disposeWhenNodeIsRemoved"] : null;
     var disposeWhen = options["disposeWhen"] || function() { return false; };
     if (disposeWhenNodeIsRemoved) {
         dispose = function() {
