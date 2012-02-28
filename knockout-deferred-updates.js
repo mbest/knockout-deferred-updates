@@ -166,7 +166,7 @@ ko.ignoreDependencies = function(callback, object, args) {
 }
 
 /*
- * Replace ko.subscribable.fn.subscribe with one where change event are deferred
+ * Replace ko.subscribable.fn.subscribe with one where change events are deferred
  */
 subFnObj.oldSubscribe = subFnObj[subFnName];    // Save old subscribe function
 subFnObj[subFnName] = function (callback, callbackTarget, event, deferUpdates) {
@@ -231,9 +231,12 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
             ko.tasks.processDelayed(evaluateImmediate, true, {node: disposeWhenNodeIsRemoved});
         else
             evaluateImmediate();
-        dependentObservable["notifySubscribers"](_latestValue, "dirty");
-        if (!_needsEvaluation && throttleEvaluationTimeout)  // The notification might have triggered an evaluation
-            clearTimeout(evaluationTimeoutInstance);
+
+        if (dependentObservable["notifySubscribers"]) {     // notifySubscribers won't exist on first evaluation (but there won't be any subscribers anyway) 
+            dependentObservable["notifySubscribers"](_latestValue, "dirty");
+            if (!_needsEvaluation && throttleEvaluationTimeout)  // The notification might have triggered an evaluation
+                clearTimeout(evaluationTimeoutInstance);
+        }
     }
 
     function addDependency(subscribable) {
