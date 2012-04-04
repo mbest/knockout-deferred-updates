@@ -68,12 +68,13 @@ ko.tasks = (function() {
         processDelayed: function(evaluator, distinct, extras) {
             if ((distinct || distinct === undefined) && isEvaluatorDuplicate(evaluator)) {
                 // Don't add evaluator if distinct is set (or missing) and evaluator is already in list
-                return;
+                return false;
             }
             evaluatorsArray.push(ko.utils.extend({evaluator: evaluator}, extras || {}));
             if (!taskStack.length && indexProcessing === undefined && !evaluatorHandler) {
                 evaluatorHandler = window[setImmediate](processEvaluatorsCallback);
             }
+            return true;
         },
 
         makeProcessedCallback: function(evaluator) {
@@ -222,17 +223,18 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
 
     var evaluationTimeoutInstance = null;
     function evaluatePossiblyAsync() {
+        var shouldNotify = !_needsEvaluation;
         _needsEvaluation = true;
         var throttleEvaluationTimeout = dependentObservable['throttleEvaluation'];
         if (throttleEvaluationTimeout && throttleEvaluationTimeout >= 0) {
             clearTimeout(evaluationTimeoutInstance);
             evaluationTimeoutInstance = ko.evaluateAsynchronously(evaluateImmediate, throttleEvaluationTimeout);
         } else if ((newComputed.deferUpdates && dependentObservable.deferUpdates !== false) || dependentObservable.deferUpdates)
-            ko.tasks.processDelayed(evaluateImmediate, true, {node: disposeWhenNodeIsRemoved});
+            shouldNotify = ko.tasks.processDelayed(evaluateImmediate, true, {node: disposeWhenNodeIsRemoved});
         else
-            evaluateImmediate();
+            shouldNotify = evaluateImmediate();
 
-        if (dependentObservable["notifySubscribers"]) {     // notifySubscribers won't exist on first evaluation (but there won't be any subscribers anyway) 
+        if (shouldNotify && dependentObservable["notifySubscribers"]) {     // notifySubscribers won't exist on first evaluation (but there won't be any subscribers anyway) 
             dependentObservable["notifySubscribers"](_latestValue, "dirty");
             if (!_needsEvaluation && throttleEvaluationTimeout)  // The notification might have triggered an evaluation
                 clearTimeout(evaluationTimeoutInstance);
@@ -246,12 +248,12 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
 
     function evaluateImmediate() {
         if (_isBeingEvaluated || !_needsEvaluation)
-            return;
+            return false;
 
         // disposeWhen won't be set until after initial evaluation
         if (disposeWhen && disposeWhen()) {
             dependentObservable.dispose();
-            return;
+            return false;
         }
 
         _isBeingEvaluated = true;
@@ -268,6 +270,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
 
         dependentObservable["notifySubscribers"](_latestValue);
         _isBeingEvaluated = false;
+        return true;
     }
 
     function evaluateInitial() {
