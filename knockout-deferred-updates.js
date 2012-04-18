@@ -148,7 +148,7 @@ var oldComputed = ko.computed,
     disposeName = findPropertyName(computedProto, computedProto.dispose);
 
 // Find ko.utils.domNodeIsAttachedToDocument
-var nodeInDocName = findNameMethodSignatureContaining(ko.utils, 'document)');
+var nodeInDocName = findNameMethodSignatureContaining(ko.utils, 'ocument)');
 
 // Find the name of the ko.subscribable.fn.subscribe function
 var subFnObj = ko.subscribable.fn,
