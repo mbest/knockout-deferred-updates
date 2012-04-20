@@ -71,12 +71,13 @@ ko.tasks = (function() {
         processDelayed: function(evaluator, distinct, extras) {
             if ((distinct || distinct === undefined) && isEvaluatorDuplicate(evaluator, extras)) {
                 // Don't add evaluator if distinct is set (or missing) and evaluator is already in list
-                return;
+                return false;
             }
             evaluatorsArray.push(ko.utils.extend({evaluator: evaluator}, extras || {}));
             if (!taskStack.length && indexProcessing === undefined && !evaluatorHandler) {
                 evaluatorHandler = window[setImmediate](processEvaluatorsCallback);
             }
+            return true;
         },
 
         makeProcessedCallback: function(evaluator) {
@@ -150,7 +151,7 @@ var oldComputed = ko.computed,
     disposeName = findPropertyName(computedProto, computedProto.dispose);
 
 // Find ko.utils.domNodeIsAttachedToDocument
-var nodeInDocName = findNameMethodSignatureContaining(ko.utils, 'document)');
+var nodeInDocName = findNameMethodSignatureContaining(ko.utils, 'ocument)');
 
 // Find the name of the ko.subscribable.fn.subscribe function
 var subFnObj = ko.subscribable.fn,
@@ -169,7 +170,7 @@ ko.ignoreDependencies = function(callback, object, args) {
 }
 
 /*
- * Replace ko.subscribable.fn.subscribe with one where change event are deferred
+ * Replace ko.subscribable.fn.subscribe with one where change events are deferred
  */
 subFnObj.oldSubscribe = subFnObj[subFnName];    // Save old subscribe function
 subFnObj[subFnName] = function (callback, callbackTarget, event, deferUpdates) {
@@ -180,10 +181,12 @@ subFnObj[subFnName] = function (callback, callbackTarget, event, deferUpdates) {
             else
                 ko.ignoreDependencies(callback, callbackTarget, [valueToNotify]);
         };
-        return this.oldSubscribe(newCallback, undefined, event);
+        var subscription = this.oldSubscribe(newCallback, undefined, event);
     } else {
-        return this.oldSubscribe(callback, callbackTarget, event);
+        var subscription = this.oldSubscribe(callback, callbackTarget, event);
     }
+    subscription.target = this;
+    return subscription;
 }
 
 
@@ -225,17 +228,18 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
 
     var evaluationTimeoutInstance = null;
     function evaluatePossiblyAsync() {
+        var shouldNotify = !_needsEvaluation;
         _needsEvaluation = true;
         var throttleEvaluationTimeout = dependentObservable['throttleEvaluation'];
         if (throttleEvaluationTimeout && throttleEvaluationTimeout >= 0) {
             clearTimeout(evaluationTimeoutInstance);
             evaluationTimeoutInstance = ko.evaluateAsynchronously(evaluateImmediate, throttleEvaluationTimeout);
         } else if ((newComputed.deferUpdates && dependentObservable.deferUpdates !== false) || dependentObservable.deferUpdates)
-            ko.tasks.processDelayed(evaluateImmediate, true, {node: disposeWhenNodeIsRemoved});
+            shouldNotify = ko.tasks.processDelayed(evaluateImmediate, true, {node: disposeWhenNodeIsRemoved});
         else
-            evaluateImmediate();
+            shouldNotify = evaluateImmediate();
 
-        if (dependentObservable["notifySubscribers"]) {
+        if (shouldNotify && dependentObservable["notifySubscribers"]) {     // notifySubscribers won't exist on first evaluation (but there won't be any subscribers anyway) 
             dependentObservable["notifySubscribers"](_latestValue, "dirty");
             if (!_needsEvaluation && throttleEvaluationTimeout)  // The notification might have triggered an evaluation
                 clearTimeout(evaluationTimeoutInstance);
@@ -249,28 +253,47 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
 
     function evaluateImmediate() {
         if (_isBeingEvaluated || !_needsEvaluation)
-            return;
+            return false;
 
         // disposeWhen won't be set until after initial evaluation
         if (disposeWhen && disposeWhen()) {
             dependentObservable.dispose();
-            return;
+            return false;
         }
 
         _isBeingEvaluated = true;
         try {
-            disposeAllSubscriptionsToDependencies();
-            depDet[depDetBeginName](addDependency);
+            // Initially, we assume that none of the subscriptions are still being used (i.e., all are candidates for disposal).
+            // Then, during evaluation, we cross off any that are in fact still being used.
+            var disposalCandidates = ko.utils.arrayMap(_subscriptionsToDependencies, function(item) {return item.target;});
+
+            depDet[depDetBeginName](function(subscribable) {
+                var inOld;
+                if ((inOld = ko.utils.arrayIndexOf(disposalCandidates, subscribable)) >= 0)
+                    disposalCandidates[inOld] = undefined; // Don't want to dispose this subscription, as it's still being used
+                else
+                    addDependency(subscribable); // Brand new subscription - add it
+            });
+
             var newValue = readFunction.call(evaluatorFunctionTarget);
+
+            // For each subscription no longer being used, remove it from the active subscriptions list and dispose it
+            for (var i = disposalCandidates.length - 1; i >= 0; i--) {
+                if (disposalCandidates[i])
+                    _subscriptionsToDependencies.splice(i, 1)[0].dispose();
+            }
+
+            _needsEvaluation = false;
+
             dependentObservable["notifySubscribers"](_latestValue, "beforeChange");
             _latestValue = newValue;
-            _needsEvaluation = false;
         } finally {
             depDet.end();
         }
 
         dependentObservable["notifySubscribers"](_latestValue);
         _isBeingEvaluated = false;
+        return true;
     }
 
     function evaluateInitial() {
