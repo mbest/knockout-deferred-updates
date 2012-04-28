@@ -29,7 +29,10 @@ ko.tasks = (function() {
                 if (!start)
                     indexProcessing = i;
                 var evObj = evaluatorsArray[i], evaluator = evObj.evaluator;
-                evaluator.apply(evObj.object, evObj.args || []);
+                if (!evObj.processed) {
+                    evObj.processed = true;
+                    evaluator.apply(evObj.object, evObj.args || []);
+                }
             }
         } finally {
             if (start) {
@@ -104,6 +107,8 @@ ko.tasks = (function() {
             }
         }
     };
+
+    ko.processAllDeferredUpdates = processEvaluatorsCallback;
 
     ko.evaluateAsynchronously = function(evaluator, timeout) {
         return setTimeout(tasks.makeProcessedCallback(evaluator), timeout);
@@ -239,7 +244,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         else
             shouldNotify = evaluateImmediate();
 
-        if (shouldNotify && dependentObservable["notifySubscribers"]) {     // notifySubscribers won't exist on first evaluation (but there won't be any subscribers anyway) 
+        if (shouldNotify && dependentObservable["notifySubscribers"]) {     // notifySubscribers won't exist on first evaluation (but there won't be any subscribers anyway)
             dependentObservable["notifySubscribers"](_latestValue, "dirty");
             if (!_needsEvaluation && throttleEvaluationTimeout)  // The notification might have triggered an evaluation
                 clearTimeout(evaluationTimeoutInstance);
