@@ -29,6 +29,7 @@ ko.tasks = (function() {
                 if (!start)
                     indexProcessing = i;
                 var evObj = evaluatorsArray[i], evaluator = evObj.evaluator;
+                // Check/set a flag for the evaluator so we don't call it again if processEvaluators is called recursively
                 if (!evObj.processed) {
                     evObj.processed = true;
                     evaluator.apply(evObj.object, evObj.args || []);
@@ -344,7 +345,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         return _latestValue;
     }
 
-    // Need to set disposeWhenNodeIsRemoved here in case we get a notification during the the initial evaluation
+    // Need to set disposeWhenNodeIsRemoved here in case we get a notification during the initial evaluation
     var disposeWhenNodeIsRemoved = (typeof options["disposeWhenNodeIsRemoved"] == "object") ? options["disposeWhenNodeIsRemoved"] : null;
 
     if (options['deferEvaluation'] !== true)
