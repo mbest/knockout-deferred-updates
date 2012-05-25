@@ -389,6 +389,40 @@ describe('Binding: Value', {
         ko.utils.triggerEvent(testNode.childNodes[0], "change");
         value_of(typeof observable()).should_be("number");
         value_of(observable()).should_be(20);
+    },
+
+    'On IE, should respond exactly once to "propertychange" followed by "blur" or "change" or both': function() {
+        var isIE = navigator.userAgent.indexOf("MSIE") >= 0;
+
+        if (isIE) {
+            var myobservable = new ko.observable(123).extend({ notify: 'always' });
+            var numUpdates = 0;
+            myobservable.subscribe(function() { numUpdates++ });
+            testNode.innerHTML = "<input data-bind='value:someProp' />";
+            ko.applyBindings({ someProp: myobservable }, testNode);
+
+            // First try change then blur
+            testNode.childNodes[0].value = "some user-entered value";
+            ko.utils.triggerEvent(testNode.childNodes[0], "propertychange");
+            ko.utils.triggerEvent(testNode.childNodes[0], "change");
+            value_of(myobservable()).should_be("some user-entered value");
+            ko.processAllDeferredUpdates();
+            value_of(numUpdates).should_be(1);
+            ko.utils.triggerEvent(testNode.childNodes[0], "blur");
+            ko.processAllDeferredUpdates();
+            value_of(numUpdates).should_be(1);
+
+            // Now try blur then change
+            testNode.childNodes[0].value = "different user-entered value";
+            ko.utils.triggerEvent(testNode.childNodes[0], "propertychange");
+            ko.utils.triggerEvent(testNode.childNodes[0], "blur");
+            value_of(myobservable()).should_be("different user-entered value");
+            ko.processAllDeferredUpdates();
+            value_of(numUpdates).should_be(2);
+            ko.utils.triggerEvent(testNode.childNodes[0], "change");
+            ko.processAllDeferredUpdates();
+            value_of(numUpdates).should_be(2);
+        }
     }
 })
 
@@ -509,6 +543,29 @@ describe('Binding: Selected Options', {
 
         value_of(selection()).should_be(["A", cObject]);
         value_of(selection()[1] === cObject).should_be(true); // Also check with strict equality, because we don't want to falsely accept [object Object] == cObject
+    },
+
+    'Should update the model when selection in the SELECT node inside an optgroup changes': function () {
+        function setMultiSelectOptionSelectionState(optionElement, state) {
+            // Workaround an IE 6 bug (http://benhollis.net/experiments/browserdemos/ie6-adding-options.html)
+            if (/MSIE 6/i.test(navigator.userAgent))
+                optionElement.setAttribute('selected', state);
+            else
+                optionElement.selected = state;
+        }
+
+        var selection = new ko.observableArray([]);
+        testNode.innerHTML = "<select multiple='multiple' data-bind='selectedOptions:mySelection'><optgroup label='group'><option value='a'>a-text</option><option value='b'>b-text</option><option value='c'>c-text</option></optgroup></select>";
+        ko.applyBindings({ mySelection: selection }, testNode);
+
+        value_of(selection()).should_be([]);
+
+        setMultiSelectOptionSelectionState(testNode.childNodes[0].childNodes[0].childNodes[0], true);
+        setMultiSelectOptionSelectionState(testNode.childNodes[0].childNodes[0].childNodes[1], false);
+        setMultiSelectOptionSelectionState(testNode.childNodes[0].childNodes[0].childNodes[2], true);
+        ko.utils.triggerEvent(testNode.childNodes[0], "change");
+
+        value_of(selection()).should_be(['a', 'c']);
     }
 });
 
@@ -655,6 +712,17 @@ describe('Binding: CSS class name', {
         observable2(false);
         ko.processAllDeferredBindingUpdates();
         value_of(testNode.childNodes[0].className).should_be("unrelatedClass1 unrelatedClass2 myRule");
+    },
+
+    'Should give the element a single CSS class without a leading space when the specified value is true': function() {
+        var observable1 = new ko.observable();
+        testNode.innerHTML = "<div data-bind='css: { myRule: someModelProperty }'>Hallo</div>";
+        ko.applyBindings({ someModelProperty: observable1 }, testNode);
+
+        value_of(testNode.childNodes[0].className).should_be("");
+        observable1(true);
+        ko.processAllDeferredBindingUpdates();
+        value_of(testNode.childNodes[0].className).should_be("myRule");
     }
 });
 
@@ -909,6 +977,19 @@ describe('Binding: Attr', {
             ko.processAllDeferredBindingUpdates();
             value_of(testNode.childNodes[0].getAttribute("someAttrib")).should_be(null);
         });
+    },
+
+    'Should be able to set class attribute and access it using className property': function() {
+        var model = { myprop : ko.observable("newClass") };
+        testNode.innerHTML = "<div class='oldClass' data-bind=\"attr: {'class': myprop}\"></div>";
+        value_of(testNode.childNodes[0].className).should_be("oldClass");
+        ko.applyBindings(model, testNode);
+        value_of(testNode.childNodes[0].className).should_be("newClass");
+        // Should be able to clear class also
+        model.myprop(undefined);
+        ko.processAllDeferredBindingUpdates();
+        value_of(testNode.childNodes[0].className).should_be("");
+        value_of(testNode.childNodes[0].getAttribute("class")).should_be(null);
     }
 });
 
@@ -1290,6 +1371,26 @@ describe('Binding: Foreach', {
         value_of(testNode.childNodes[0]).should_contain_html('<span data-bind="text: childprop">first child</span><span data-bind="text: childprop">second child</span>');
     },
 
+    'Should clean away any data values attached to the original template nodes before use': function() {
+        // Represents issue https://github.com/SteveSanderson/knockout/pull/420
+        testNode.innerHTML = "<div data-bind='foreach: [1, 2]'><span></span></div>";
+
+        // Apply some DOM Data to the SPAN
+        var span = testNode.childNodes[0].childNodes[0];
+        value_of(span.tagName).should_be("SPAN");
+        ko.utils.domData.set(span, "mydata", 123);
+
+        // See that it vanishes because the SPAN is extracted as a template
+        value_of(ko.utils.domData.get(span, "mydata")).should_be(123);
+        ko.applyBindings(null, testNode);
+        value_of(ko.utils.domData.get(span, "mydata")).should_be(undefined);
+
+        // Also be sure the DOM Data doesn't appear in the output
+        value_of(testNode.childNodes[0]).should_contain_html('<span></span><span></span>');
+        value_of(ko.utils.domData.get(testNode.childNodes[0].childNodes[0], "mydata")).should_be(undefined);
+        value_of(ko.utils.domData.get(testNode.childNodes[0].childNodes[1], "mydata")).should_be(undefined);
+    },
+
     'Should be able to use $data to reference each array item being bound': function() {
         testNode.innerHTML = "<div data-bind='foreach: someItems'><span data-bind='text: $data'></span></div>";
         var someItems = ['alpha', 'beta'];
@@ -1590,11 +1691,11 @@ describe('Binding: Foreach', {
 
     'Should be able to output HTML5 elements within container-less templates (same as above)': function() {
         // Represents https://github.com/SteveSanderson/knockout/issues/194
-        ko.utils.setHtml(testNode, "<!-- ko foreach:someitems --><div><section data-bind='text: $data'></section></div><!-- /ko -->");
+        ko.utils.setHtml(testNode, "xxx<!-- ko foreach:someitems --><div><section data-bind='text: $data'></section></div><!-- /ko -->");
         var viewModel = {
             someitems: [ 'Alpha', 'Beta' ]
         };
         ko.applyBindings(viewModel, testNode);
-        value_of(testNode).should_contain_html('<!-- ko foreach:someitems --><div><section data-bind="text: $data">alpha</section></div><div><section data-bind="text: $data">beta</section></div><!-- /ko -->');
+        value_of(testNode).should_contain_html('xxx<!-- ko foreach:someitems --><div><section data-bind="text: $data">alpha</section></div><div><section data-bind="text: $data">beta</section></div><!-- /ko -->');
     }
 });

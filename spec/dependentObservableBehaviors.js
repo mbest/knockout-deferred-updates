@@ -10,6 +10,11 @@ describe('Dependent Observable', {
         value_of(ko.isObservable(instance)).should_be(true);
     },
 
+    'Should advertise that instances are computed': function () {
+        var instance = new ko.dependentObservable(function () { });
+        value_of(ko.isComputed(instance)).should_be(true);
+    },
+
     'Should advertise that instances cannot have values written to them': function () {
         var instance = new ko.dependentObservable(function () { });
         value_of(ko.isWriteableObservable(instance)).should_be(false);
@@ -158,7 +163,6 @@ describe('Dependent Observable', {
         var notifiedValue;
         var observable = new ko.observable(1);
         var depedentObservable = new ko.dependentObservable(function () { return observable() + 1; });
-        depedentObservable.deferUpdates = false;
         depedentObservable.subscribe(function (value) { notifiedValue = value; });
 
         ko.processAllDeferredUpdates();
@@ -172,11 +176,11 @@ describe('Dependent Observable', {
         var notifiedValue;
         var observable = new ko.observable(1);
         var depedentObservable = new ko.dependentObservable(function () { return observable() + 1; });
-        depedentObservable.deferUpdates = false;
         depedentObservable.subscribe(function (value) { notifiedValue = value; }, null, "beforeChange");
 
         value_of(notifiedValue).should_be(undefined);
         observable(2);
+        ko.processAllDeferredUpdates();
         value_of(notifiedValue).should_be(2);
         value_of(depedentObservable()).should_be(3);
     },
@@ -185,7 +189,6 @@ describe('Dependent Observable', {
         var notifiedValues = [];
         var observable = new ko.observable();
         var depedentObservable = new ko.dependentObservable(function () { return observable() * observable(); });
-        depedentObservable.deferUpdates = false;
         depedentObservable.subscribe(function (value) { notifiedValues.push(value); });
         observable(2);
         ko.processAllDeferredUpdates();
@@ -222,12 +225,12 @@ describe('Dependent Observable', {
             null,
             { disposeWhen: function () { return timeToDispose; } }
         );
-        dependent.deferUpdates = false;
         value_of(timesEvaluated).should_be(1);
         value_of(dependent.getDependenciesCount()).should_be(1);
 
         timeToDispose = true;
         underlyingObservable(101);
+        ko.processAllDeferredUpdates();
         value_of(timesEvaluated).should_be(1);
         value_of(dependent.getDependenciesCount()).should_be(0);
     },
@@ -249,5 +252,16 @@ describe('Dependent Observable', {
         value_of(timesEvaluated).should_be(0);
         value_of(instance()).should_be(123);
         value_of(timesEvaluated).should_be(1);
+    },
+
+    'Should prevent recursive calling of read function': function() {
+        var observable = ko.observable(0),
+            computed = ko.dependentObservable(function() {
+                // this both reads and writes to the observable
+                // will result in errors like "Maximum call stack size exceeded" (chrome)
+                // or "Out of stack space" (IE) or "too much recursion" (Firefox) if recursion
+                // isn't prevented
+                observable(observable() + 1);
+            });
      }
 })

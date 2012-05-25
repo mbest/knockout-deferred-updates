@@ -101,7 +101,7 @@ describe('Templating', {
         document.body.appendChild(testNode);
     },
 
-/*    'Template engines can return an array of DOM nodes': function () {
+    'Template engines can return an array of DOM nodes': function () {
         ko.setTemplateEngine(new dummyTemplateEngine({ x: [document.createElement("div"), document.createElement("span")] }));
         ko.renderTemplate("x", null, { bypassDomNodeWrap: true });
     },
@@ -367,6 +367,33 @@ describe('Templating', {
         value_of(initCalls).should_be(3); // 3 because there were 3 items in myCollection
     },
 
+    'Data binding \'foreach\' option should apply bindings with an $index in the context': function () {
+        var myArray = new ko.observableArray([{ personName: "Bob" }, { personName: "Frank"}]);
+        ko.setTemplateEngine(new dummyTemplateEngine({ itemTemplate: "The item # is <span data-bind='text: $index'></span>" }));
+        testNode.innerHTML = "<div data-bind='template: { name: \"itemTemplate\", foreach: myCollection }'></div>";
+
+        ko.applyBindings({ myCollection: myArray }, testNode);
+        value_of(testNode.childNodes[0]).should_contain_html("<div>the item # is <span>0</span></div><div>the item # is <span>1</span></div>");
+    },
+
+    'Data binding \'foreach\' option should update bindings that reference an $index if the list changes': function () {
+        var myArray = new ko.observableArray([{ personName: "Bob" }, { personName: "Frank"}]);
+        ko.setTemplateEngine(new dummyTemplateEngine({ itemTemplate: "The item <span data-bind='text: personName'></span>is <span data-bind='text: $index'></span>" }));
+        testNode.innerHTML = "<div data-bind='template: { name: \"itemTemplate\", foreach: myCollection }'></div>";
+
+        ko.applyBindings({ myCollection: myArray }, testNode);
+        value_of(testNode.childNodes[0]).should_contain_html("<div>the item <span>bob</span>is <span>0</span></div><div>the item <span>frank</span>is <span>1</span></div>");
+
+        var frank = myArray.pop(); // remove frank
+        ko.processAllDeferredBindingUpdates();
+        value_of(testNode.childNodes[0]).should_contain_html("<div>the item <span>bob</span>is <span>0</span></div>");
+
+        myArray.unshift(frank); // put frank in the front
+        ko.processAllDeferredBindingUpdates();
+        value_of(testNode.childNodes[0]).should_contain_html("<div>the item <span>frank</span>is <span>0</span></div><div>the item <span>bob</span>is <span>1</span></div>");
+
+    },
+
     'Data binding \'foreach\' option should accept array with "undefined" and "null" items': function () {
         var myArray = new ko.observableArray([undefined, null]);
         ko.setTemplateEngine(new dummyTemplateEngine({ itemTemplate: "The item is <span data-bind='text: String($data)'></span>" }));
@@ -464,7 +491,7 @@ describe('Templating', {
         value_of(testNode.childNodes[0]).should_contain_html("<div>someprop=1</div><div>someprop=2</div><div>someprop=3</div>");
     },
 
-*/    'Data binding syntax should support \"if\" condition' : function() {
+    'Data binding syntax should support \"if\" condition' : function() {
         ko.setTemplateEngine(new dummyTemplateEngine({ myTemplate: "Value: [js: myProp().childProp]" }));
         testNode.innerHTML = "<div data-bind='template: { name: \"myTemplate\", \"if\": myProp }'></div>";
 
@@ -485,7 +512,7 @@ describe('Templating', {
         value_of(testNode.childNodes[0]).should_contain_text("Value: def");
     },
 
-/*    'Data binding syntax should support \"ifnot\" condition' : function() {
+    'Data binding syntax should support \"ifnot\" condition' : function() {
         ko.setTemplateEngine(new dummyTemplateEngine({ myTemplate: "Hello" }));
         testNode.innerHTML = "<div data-bind='template: { name: \"myTemplate\", ifnot: shouldHide }'></div>";
 
@@ -694,5 +721,14 @@ describe('Templating', {
         testNode.innerHTML = "start <div data-bind='foreach: [1,2]'><span><!-- leading comment -->hello</span></div>";
         ko.applyBindings(null, testNode);
         value_of(testNode).should_contain_html('start <div data-bind="foreach: [1,2]"><span><!-- leading comment -->hello</span><span><!-- leading comment -->hello</span></div>');
+    },
+
+    'Should allow anonymous templates output to include top-level virtual elements, and will bind their virtual children only once': function() {
+        delete ko.bindingHandlers.nonexistentHandler;
+        var initCalls = 0;
+        ko.bindingHandlers.countInits = { init: function () { initCalls++ } };
+        testNode.innerHTML = "<div data-bind='template: {}'><!-- ko nonexistentHandler: true --><span data-bind='countInits: true'></span><!-- /ko --></div>";
+        ko.applyBindings(null, testNode);
+        value_of(initCalls).should_be(1);
     }
-*/})
+})
