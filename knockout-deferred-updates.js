@@ -1,6 +1,7 @@
 // Deferred Updates plugin for Knockout http://knockoutjs.com/
 // (c) Michael Best, Steven Sanderson
 // License: MIT (http://www.opensource.org/licenses/mit-license.php)
+// Version 1.1.0
 
 (function(ko, undefined) {
 
@@ -21,13 +22,16 @@ ko.tasks = (function() {
             processEvaluators(originalLength);
     }
 
+    function currentStart() {
+        return taskStack.length ? taskStack[taskStack.length-1] : 0;
+    }
+
     function processEvaluators(start) {
-        // New items might be added to evaluatorsArray during this loop
-        // So always check evaluatorsArray.length
         try {
+            // New items might be added to evaluatorsArray during this loop
+            // So always check evaluatorsArray.length
             for (var i = start || 0; i < evaluatorsArray.length; i++) {
-                if (!start)
-                    indexProcessing = i;
+                indexProcessing = i;
                 var evObj = evaluatorsArray[i], evaluator = evObj.evaluator;
                 // Check/set a flag for the evaluator so we don't call it again if processEvaluators is called recursively
                 if (!evObj.processed) {
@@ -42,8 +46,9 @@ ko.tasks = (function() {
             } else {
                 // Clear array and handler to indicate that we're finished
                 evaluatorsArray = [];
-                indexProcessing = evaluatorHandler = undefined;
+                evaluatorHandler = undefined;
             }
+            indexProcessing = undefined;
         }
     }
 
@@ -53,8 +58,8 @@ ko.tasks = (function() {
     }
 
     function isEvaluatorDuplicate(evaluator, extras) {
-        for (var i = indexProcessing || 0, j = evaluatorsArray.length; i < j; i++)
-            if (evaluatorsArray[i].evaluator == evaluator) {
+        for (var i = indexProcessing || currentStart(), j = evaluatorsArray.length; i < j; i++)
+            if (evaluatorsArray[i].evaluator == evaluator && !evaluatorsArray[i].processed) {
                 if (extras)
                     ko.utils.extend(evaluatorsArray[i], extras);
                 return true;
@@ -78,7 +83,7 @@ ko.tasks = (function() {
                 return false;
             }
             evaluatorsArray.push(ko.utils.extend({evaluator: evaluator}, extras || {}));
-            if (!taskStack.length && indexProcessing === undefined && !evaluatorHandler) {
+            if (!taskStack.length && !evaluatorHandler) {
                 evaluatorHandler = window[setImmediate](processEvaluatorsCallback);
             }
             return true;
@@ -91,18 +96,14 @@ ko.tasks = (function() {
         }
     };
 
-    ko.processDeferredBindingUpdatesForNode = function(node) {
-        for (var i = 0, j = evaluatorsArray.length; i < j; i++) {
-            if (evaluatorsArray[i].node == node) {
-                var evaluator = evaluatorsArray[i].evaluator;
-                evaluator();
-            }
-        }
-    };
-
+    ko.processDeferredBindingUpdatesForNode =       // deprecated (included for compatibility)
     ko.processAllDeferredBindingUpdates = function(node) {
-        for (var i = 0, j = evaluatorsArray.length; i < j; i++) {
-            if (evaluatorsArray[i].node) {
+        // New items might be added to evaluatorsArray during this loop
+        // So always check evaluatorsArray.length
+        for (var i = 0; i < evaluatorsArray.length; i++) {
+            var evObj = evaluatorsArray[i];
+            if (evObj.node && !evObj.processed) {
+                evObj.processed = true;
                 var evaluator = evaluatorsArray[i].evaluator;
                 evaluator();
             }
@@ -179,18 +180,21 @@ ko.ignoreDependencies = function(callback, object, args) {
  * Replace ko.subscribable.fn.subscribe with one where change events are deferred
  */
 subFnObj.oldSubscribe = subFnObj[subFnName];    // Save old subscribe function
-subFnObj[subFnName] = function (callback, callbackTarget, event, deferUpdates) {
-    if (callback.toString().indexOf('throttleEvaluation') === -1) {
+subFnObj[subFnName] = function (callback, callbackTarget, event, deferUpdates, isComputed) {
+    event = event || 'change';
+    if (!isComputed) {
         var newCallback = function(valueToNotify) {
-            if (((newComputed.deferUpdates && deferUpdates !== false) || deferUpdates) && (!event || event == 'change'))
-                ko.tasks.processDelayed(callback, false, {object: callbackTarget, args: [valueToNotify]});
+            if (((newComputed.deferUpdates && deferUpdates !== false) || deferUpdates) && event == 'change')
+                ko.tasks.processDelayed(callback, false, {object: callbackTarget, args: [valueToNotify, event]});
             else
-                ko.ignoreDependencies(callback, callbackTarget, [valueToNotify]);
+                ko.ignoreDependencies(callback, callbackTarget, [valueToNotify, event]);
         };
-        var subscription = this.oldSubscribe(newCallback, undefined, event);
     } else {
-        var subscription = this.oldSubscribe(callback, callbackTarget, event);
+        var newCallback = function(valueToNotify) {
+            callback(valueToNotify, event);
+        };
     }
+    var subscription = this.oldSubscribe(newCallback, null, event);
     subscription.target = this;
     return subscription;
 }
@@ -201,6 +205,7 @@ subFnObj[subFnName] = function (callback, callbackTarget, event, deferUpdates) {
  */
 var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget, options) {
     var _latestValue,
+        _possiblyNeedsEvaluation = false,
         _needsEvaluation = true,
         _isBeingEvaluated = false,
         readFunction = evaluatorFunctionOrOptions;
@@ -229,36 +234,48 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
             subscription.dispose();
         });
         _subscriptionsToDependencies = [];
-        _needsEvaluation = false;
+        _possiblyNeedsEvaluation = _needsEvaluation = false;
     }
 
     var evaluationTimeoutInstance = null;
-    function evaluatePossiblyAsync() {
-        var shouldNotify = !_needsEvaluation;
-        _needsEvaluation = true;
+    function evaluatePossiblyAsync(value, event) {
+        var isDirtyEvent = (event == "dirty");
+        var shouldNotify = isDirtyEvent && !_possiblyNeedsEvaluation && !_needsEvaluation;
+        if (isDirtyEvent)
+            _possiblyNeedsEvaluation = true;
+        else
+            _needsEvaluation = true;
         var throttleEvaluationTimeout = dependentObservable['throttleEvaluation'];
         if (throttleEvaluationTimeout && throttleEvaluationTimeout >= 0) {
             clearTimeout(evaluationTimeoutInstance);
             evaluationTimeoutInstance = ko.evaluateAsynchronously(evaluateImmediate, throttleEvaluationTimeout);
         } else if ((newComputed.deferUpdates && dependentObservable.deferUpdates !== false) || dependentObservable.deferUpdates)
             shouldNotify = ko.tasks.processDelayed(evaluateImmediate, true, {node: disposeWhenNodeIsRemoved});
-        else
+        else if (_needsEvaluation)
             shouldNotify = evaluateImmediate();
 
         if (shouldNotify && dependentObservable["notifySubscribers"]) {     // notifySubscribers won't exist on first evaluation (but there won't be any subscribers anyway)
             dependentObservable["notifySubscribers"](_latestValue, "dirty");
-            if (!_needsEvaluation && throttleEvaluationTimeout)  // The notification might have triggered an evaluation
+            if (!_possiblyNeedsEvaluation && throttleEvaluationTimeout)  // The notification might have triggered an evaluation
                 clearTimeout(evaluationTimeoutInstance);
         }
     }
 
-    function addDependency(subscribable) {
-        var event = (subscribable[koProtoName] === newComputed) ? "dirty" : "change";
-        _subscriptionsToDependencies.push(subscribable.subscribe(evaluatePossiblyAsync, null, event));
+    function markAsChanged() {
+        _needsEvaluation = true;
     }
 
-    function evaluateImmediate() {
-        if (_isBeingEvaluated || !_needsEvaluation)
+    function addDependency(subscribable) {
+        var event = "change";
+        if (subscribable[koProtoName] === newComputed) {
+            _subscriptionsToDependencies.push(subscribable.subscribe(markAsChanged, null, "change", false, true));
+            event = "dirty";
+    }
+        _subscriptionsToDependencies.push(subscribable.subscribe(evaluatePossiblyAsync, null, event, false, true));
+    }
+
+    function evaluateImmediate(force) {
+        if (_isBeingEvaluated || (!_needsEvaluation && !(force === true)))
             return false;
 
         // disposeWhen won't be set until after initial evaluation
@@ -274,10 +291,12 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
             var disposalCandidates = ko.utils.arrayMap(_subscriptionsToDependencies, function(item) {return item.target;});
 
             depDet[depDetBeginName](function(subscribable) {
-                var inOld;
-                if ((inOld = ko.utils.arrayIndexOf(disposalCandidates, subscribable)) >= 0)
+                var inOld, found = false;
+                while ((inOld = ko.utils.arrayIndexOf(disposalCandidates, subscribable)) >= 0) {
                     disposalCandidates[inOld] = undefined; // Don't want to dispose this subscription, as it's still being used
-                else
+                    found = true;
+                }
+                if (!found)
                     addDependency(subscribable); // Brand new subscription - add it
             });
 
@@ -289,7 +308,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
                     _subscriptionsToDependencies.splice(i, 1)[0].dispose();
             }
 
-            _needsEvaluation = false;
+            _possiblyNeedsEvaluation = _needsEvaluation = false;
 
             dependentObservable["notifySubscribers"](_latestValue, "beforeChange");
             _latestValue = newValue;
@@ -315,34 +334,26 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
 
     function dependentObservable() {
         if (arguments.length > 0) {
-            set.apply(dependentObservable, arguments);
+            if (typeof writeFunction === "function") {
+                // Writing a value
+                // Turn off deferred updates for this observable during the write so that the 'write' is registered
+                // immediately (assuming that the read function accesses any observables that are written to).
+                var saveDeferValue = dependentObservable.deferUpdates;
+                dependentObservable.deferUpdates = false;
+
+                writeFunction.apply(evaluatorFunctionTarget, arguments);
+
+                dependentObservable.deferUpdates = saveDeferValue;
+            } else {
+                throw new Error("Cannot write a value to a ko.computed unless you specify a 'write' option. If you wish to read the current value, don't pass any parameters.");
+            }
         } else {
-            return get();
+            // Reading the value
+            if (_needsEvaluation || _possiblyNeedsEvaluation)
+                evaluateImmediate(true);
+            depDet[depDetRegisterName](dependentObservable);
+            return _latestValue;
         }
-    }
-
-    function set() {
-        if (typeof writeFunction === "function") {
-            // Writing a value
-            // Turn off deferred updates for this observable during the write so that the 'write' is registered
-            // immediately (assuming that the read function accesses any observables that are written to).
-            var saveDeferValue = dependentObservable.deferUpdates;
-            dependentObservable.deferUpdates = false;
-
-            writeFunction.apply(evaluatorFunctionTarget, arguments);
-
-            dependentObservable.deferUpdates = saveDeferValue;
-        } else {
-            throw new Error("Cannot write a value to a ko.computed unless you specify a 'write' option. If you wish to read the current value, don't pass any parameters.");
-        }
-    }
-
-    function get() {
-        // Reading the value
-        if (_needsEvaluation)
-            evaluateImmediate();
-        depDet[depDetRegisterName](dependentObservable);
-        return _latestValue;
     }
 
     // Need to set disposeWhenNodeIsRemoved here in case we get a notification during the initial evaluation
