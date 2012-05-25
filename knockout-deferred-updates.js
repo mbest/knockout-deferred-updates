@@ -275,8 +275,10 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     }
 
     function evaluateImmediate(force) {
-        if (_isBeingEvaluated || (!_needsEvaluation && !(force === true)))
+        if (_isBeingEvaluated || (!_needsEvaluation && !(force === true))) {    // test for exact *true* value since Firefox will pass an integer value when this function is called through setTimeout
+            _possiblyNeedsEvaluation = _needsEvaluation;
             return false;
+        }
 
         // disposeWhen won't be set until after initial evaluation
         if (disposeWhen && disposeWhen()) {
