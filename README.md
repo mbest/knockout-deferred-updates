@@ -33,8 +33,9 @@ This plugin/patch modifies parts of Knockout’s observable/subscription system 
    * `<computed>.deferUpdates` is a boolean property of each computed observable object that is initially *undefined*; if set to *true* or *false*, it will override the global setting for that computed observable.
    * `<computed>.getDependencies()` is a function that returns an array of observables that the computed observable depends on.
 3. `<observable>.subscribe(callback, callbackTarget, event, deferUpdates)` includes a fourth, optional parameter, that, if *true* or *false*, will overrides the global deferred updates setting for that subscription.
-4. `ko.evaluateAsynchronously(callback, timeout)` is a replacement for `setTimeout` that will call the provided callback function within `ko.tasks.processImmediate`.
-5. `ko.processAllDeferredBindingUpdates()` provides a way to update the UI immediately. This will process all pending UI updates. You could use this function if you have code that updates observables and then does direct DOM access, expecting it to be updated. Alternatively, you could wrap your observable updates in a call to `ko.tasks.processImmediate` (see above).
+4. `<observable>.getDependents()` is a new function that returns an array of computed observables that depend on this observable (or computed observable).
+5. `ko.evaluateAsynchronously(callback, timeout)` is a replacement for `setTimeout` that will call the provided callback function within `ko.tasks.processImmediate`.
+6. `ko.processAllDeferredBindingUpdates()` provides a way to update the UI immediately. This will process all pending UI updates. You could use this function if you have code that updates observables and then does direct DOM access, expecting it to be updated. Alternatively, you could wrap your observable updates in a call to `ko.tasks.processImmediate` (see above).
 
 ##### Notes
 

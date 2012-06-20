@@ -164,6 +164,14 @@ var nodeInDocName = findNameMethodSignatureContaining(ko.utils, 'ocument)');
 var subFnObj = ko.subscribable.fn,
     subFnName = findNameMethodSignatureContaining(subFnObj, '.bind(');
 
+// Find the name of ko.subscription.dispose
+var subscription = new ko.subscribable().subscribe(),
+    subscriptionProto = subscription.constructor.prototype,
+    subDisposeName = findPropertyName(subscriptionProto, subscription.dispose),
+    oldSubDispose = subscriptionProto[subDisposeName];
+subscription.dispose();
+subscription = null;
+
 /*
  * Add ko.ignoreDependencies
  */
@@ -180,9 +188,9 @@ ko.ignoreDependencies = function(callback, object, args) {
  * Replace ko.subscribable.fn.subscribe with one where change events are deferred
  */
 subFnObj.oldSubscribe = subFnObj[subFnName];    // Save old subscribe function
-subFnObj[subFnName] = function (callback, callbackTarget, event, deferUpdates, isComputed) {
+subFnObj[subFnName] = function (callback, callbackTarget, event, deferUpdates, computed) {
     event = event || 'change';
-    if (!isComputed) {
+    if (!computed) {
         var newCallback = function(valueToNotify) {
             if (((newComputed.deferUpdates && deferUpdates !== false) || deferUpdates) && event == 'change')
                 ko.tasks.processDelayed(callback, false, {object: callbackTarget, args: [valueToNotify, event]});
@@ -193,12 +201,27 @@ subFnObj[subFnName] = function (callback, callbackTarget, event, deferUpdates, i
         var newCallback = function(valueToNotify) {
             callback(valueToNotify, event);
         };
+        if (event == 'change') {
+            this.dependents = this.dependents || [];
+            this.dependents.push(computed);
+        }
     }
     var subscription = this.oldSubscribe(newCallback, null, event);
     subscription.target = this;
+    subscription.event = event;
+    subscription.dependent = computed;
     return subscription;
 }
-
+// Provide a method to return a list a dependents (computed observables that depend on the subscribable)
+subFnObj.getDependents = function() {
+    return this.dependents ? this.dependents.slice(0) : [];
+}
+// Update dispose function to clean up pointers to dependents
+subscriptionProto[subDisposeName] = function() {
+    oldSubDispose.call(this);
+    if (this.dependent && this.event == 'change')
+        ko.utils.arrayRemoveItem(this.target.dependents, this.dependent);
+}
 
 /*
  * New ko.computed with support for deferred updates (and other fixes)
@@ -268,10 +291,10 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     function addDependency(subscribable) {
         var event = "change";
         if (subscribable[koProtoName] === newComputed) {
-            _subscriptionsToDependencies.push(subscribable.subscribe(markAsChanged, null, "change", false, true));
+            _subscriptionsToDependencies.push(subscribable.subscribe(markAsChanged, null, "change", false, dependentObservable));
             event = "dirty";
         }
-        _subscriptionsToDependencies.push(subscribable.subscribe(evaluatePossiblyAsync, null, event, false, true));
+        _subscriptionsToDependencies.push(subscribable.subscribe(evaluatePossiblyAsync, null, event, false, dependentObservable));
     }
 
     function getDependencies() {
@@ -393,7 +416,15 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     dependentObservable[getDependenciesCountName] = dependentObservable.getDependenciesCount = function () { return _subscriptionsToDependencies.length; };
     dependentObservable[hasWriteFunctionName] = dependentObservable.hasWriteFunction = typeof writeFunction === "function";
     dependentObservable[disposeName] = dependentObservable.dispose = function () { dispose(); };
-    dependentObservable.getDependencies = getDependencies;
+    dependentObservable.getDependencies = function() {
+        return ko.utils.arrayMap(
+            ko.utils.arrayFilter(
+                _subscriptionsToDependencies,
+                function(item) {return item.event == 'change'}
+            ),
+            function(item) {return item.target}
+        );
+    };
 
     return dependentObservable;
 };

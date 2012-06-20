@@ -275,10 +275,14 @@ describe('Dependent Observable', {
 
         value_of(computed()).should_be("A");
         value_of(computed.getDependencies()).should_be([observableToUse, observableA]);
+        value_of(observableA.getDependents()).should_be([computed]);
+        value_of(observableB.getDependents()).should_be([]);
 
         // Switch to other observable
         observableToUse("B");
         value_of(computed()).should_be("B");
         value_of(computed.getDependencies()).should_be([observableToUse, observableB]);
+        value_of(observableA.getDependents()).should_be([]);
+        value_of(observableB.getDependents()).should_be([computed]);
     }
 })
