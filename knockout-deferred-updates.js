@@ -270,8 +270,12 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         if (subscribable[koProtoName] === newComputed) {
             _subscriptionsToDependencies.push(subscribable.subscribe(markAsChanged, null, "change", false, true));
             event = "dirty";
-    }
+        }
         _subscriptionsToDependencies.push(subscribable.subscribe(evaluatePossiblyAsync, null, event, false, true));
+    }
+
+    function getDependencies() {
+        return ko.utils.arrayMap(_subscriptionsToDependencies, function(item) {return item.target;});
     }
 
     function evaluateImmediate(force) {
@@ -290,7 +294,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         try {
             // Initially, we assume that none of the subscriptions are still being used (i.e., all are candidates for disposal).
             // Then, during evaluation, we cross off any that are in fact still being used.
-            var disposalCandidates = ko.utils.arrayMap(_subscriptionsToDependencies, function(item) {return item.target;});
+            var disposalCandidates = getDependencies();
 
             depDet[depDetBeginName](function(subscribable) {
                 var inOld, found = false;
@@ -389,6 +393,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     dependentObservable[getDependenciesCountName] = dependentObservable.getDependenciesCount = function () { return _subscriptionsToDependencies.length; };
     dependentObservable[hasWriteFunctionName] = dependentObservable.hasWriteFunction = typeof writeFunction === "function";
     dependentObservable[disposeName] = dependentObservable.dispose = function () { dispose(); };
+    dependentObservable.getDependencies = getDependencies;
 
     return dependentObservable;
 };

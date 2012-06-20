@@ -263,5 +263,22 @@ describe('Dependent Observable', {
                 // isn't prevented
                 observable(observable() + 1);
             });
-     }
+    },
+
+    'getDependencies sould return list of dependencies': function() {
+        var observableA = ko.observable("A");
+        var observableB = ko.observable("B");
+        var observableToUse = ko.observable("A");
+        var computed = ko.dependentObservable(function () {
+            return observableToUse() == "A" ? observableA() : observableB();
+        });
+
+        value_of(computed()).should_be("A");
+        value_of(computed.getDependencies()).should_be([observableToUse, observableA]);
+
+        // Switch to other observable
+        observableToUse("B");
+        value_of(computed()).should_be("B");
+        value_of(computed.getDependencies()).should_be([observableToUse, observableB]);
+    }
 })

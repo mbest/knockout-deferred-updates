@@ -20,7 +20,7 @@ This plugin/patch modifies parts of Knockout’s observable/subscription system 
 
 1. `ko.tasks`
    * `ko.tasks.processImmediate(evaluator, object, args)`
-   
+
       By using `processImmediate` to call a function that updates observables, deferred updates to *dirtied* computed observables will be run as soon as your function completes. `processImmediate` will *not* run pending updates that were triggered before it was run. This allows nested calls to `processImmediate`. It takes three parameters: `evaluator` is the function you want to run; `object` (optional) is the object the function should be called with (object will become `this` in the function); `args` (optional) is an array of parameters to pass to the function.
    * `ko.tasks.processDelayed(evaluator, distinct)`
 
@@ -31,6 +31,7 @@ This plugin/patch modifies parts of Knockout’s observable/subscription system 
 2. `ko.computed`
    * `ko.computed.deferUpdates` is a boolean property. It’s set to *true* initially, making all computed observables use deferred updates. Set it to *false* to turn off global deferred updates.
    * `<computed>.deferUpdates` is a boolean property of each computed observable object that is initially *undefined*; if set to *true* or *false*, it will override the global setting for that computed observable.
+   * `<computed>.getDependencies()` is a function that returns an array of observables that the computed observable depends on.
 3. `<observable>.subscribe(callback, callbackTarget, event, deferUpdates)` includes a fourth, optional parameter, that, if *true* or *false*, will overrides the global deferred updates setting for that subscription.
 4. `ko.evaluateAsynchronously(callback, timeout)` is a replacement for `setTimeout` that will call the provided callback function within `ko.tasks.processImmediate`.
 5. `ko.processAllDeferredBindingUpdates()` provides a way to update the UI immediately. This will process all pending UI updates. You could use this function if you have code that updates observables and then does direct DOM access, expecting it to be updated. Alternatively, you could wrap your observable updates in a call to `ko.tasks.processImmediate` (see above).
