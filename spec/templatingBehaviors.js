@@ -66,18 +66,9 @@ var dummyTemplateEngine = function (templates) {
             }
         }
 
-        if (options.bypassDomNodeWrap)
-            return ko.utils.parseHtmlFragment(result);
-        else {
-            var node = document.createElement("div");
-
-            // Annoyingly, IE strips out comment nodes unless they are contained between other nodes, so put some dummy nodes around the HTML, then remove them after parsing.
-            node.innerHTML = "<div>a</div>" + result + "<div>a</div>";
-            node.removeChild(node.firstChild);
-            node.removeChild(node.lastChild);
-
-            return [node];
-        }
+        // Use same HTML parsing code as real template engine so as to trigger same combination of IE weirdnesses
+        // Also ensure resulting nodelist is an array to mimic what the default templating engine does, so we see the effects of not being able to remove dead memo comment nodes.
+        return ko.utils.arrayPushAll([], ko.utils.parseHtmlFragment(result));
     };
 
     this.rewriteTemplate = function (template, rewriterCallback) {
@@ -93,17 +84,17 @@ dummyTemplateEngine.prototype = new ko.templateEngine();
 describe('Templating', {
     before_each: function () {
         ko.setTemplateEngine(new ko.nativeTemplateEngine());
-        var existingNode = document.getElementById("templatingTarget");
+        var existingNode = document.getElementById("testNode");
         if (existingNode != null)
             existingNode.parentNode.removeChild(existingNode);
         testNode = document.createElement("div");
-        testNode.id = "templatingTarget";
+        testNode.id = "testNode";
         document.body.appendChild(testNode);
     },
 
     'Template engines can return an array of DOM nodes': function () {
         ko.setTemplateEngine(new dummyTemplateEngine({ x: [document.createElement("div"), document.createElement("span")] }));
-        ko.renderTemplate("x", null, { bypassDomNodeWrap: true });
+        ko.renderTemplate("x", null);
     },
 
     'Should not be able to render a template until a template engine is provided': function () {
@@ -118,7 +109,7 @@ describe('Templating', {
         ko.setTemplateEngine(new dummyTemplateEngine({ someTemplate: "ABC" }));
         ko.renderTemplate("someTemplate", null, null, testNode);
         value_of(testNode.childNodes.length).should_be(1);
-        value_of(testNode.childNodes[0].innerHTML).should_be("ABC");
+        value_of(testNode.innerHTML).should_be("ABC");
     },
 
     'Should be able to access newly rendered/inserted elements in \'afterRender\' callaback': function () {
@@ -131,7 +122,7 @@ describe('Templating', {
         var myModel = {};
         ko.setTemplateEngine(new dummyTemplateEngine({ someTemplate: "ABC" }));
         ko.renderTemplate("someTemplate", myModel, { afterRender: myCallback }, testNode);
-        value_of(passedElement.innerHTML).should_be("ABC");
+        value_of(passedElement.nodeValue).should_be("ABC");
         value_of(passedDataItem).should_be(myModel);
     },
 
@@ -144,12 +135,31 @@ describe('Templating', {
 
         ko.renderTemplate("someTemplate", null, null, testNode);
         value_of(testNode.childNodes.length).should_be(1);
-        value_of(testNode.childNodes[0].innerHTML).should_be("Value = A");
+        value_of(testNode.innerHTML).should_be("Value = A");
 
         dependency("B");
         ko.processAllDeferredBindingUpdates();
         value_of(testNode.childNodes.length).should_be(1);
-        value_of(testNode.childNodes[0].innerHTML).should_be("Value = B");
+        value_of(testNode.innerHTML).should_be("Value = B");
+    },
+
+    'Should not rerender DOM element if observable accessed in \'afterRender\' callaback is changed': function () {
+        var observable = new ko.observable("A"), count = 0;
+        var myCallback = function(elementsArray, dataItem) {
+            observable();   // access observable in callback
+        };
+        var myTemplate = function() {
+            return "Value = " + (++count);
+        };
+        ko.setTemplateEngine(new dummyTemplateEngine({ someTemplate: myTemplate }));
+        ko.renderTemplate("someTemplate", {}, { afterRender: myCallback }, testNode);
+        value_of(testNode.childNodes.length).should_be(1);
+        value_of(testNode.innerHTML).should_be("Value = 1");
+
+        observable("B");
+        ko.processAllDeferredBindingUpdates();
+        value_of(testNode.childNodes.length).should_be(1);
+        value_of(testNode.innerHTML).should_be("Value = 1");
     },
 
     'If the supplied data item is observable, evaluates it and has subscription on it': function () {
@@ -159,11 +169,11 @@ describe('Templating', {
         }
         }));
         ko.renderTemplate("someTemplate", observable, null, testNode);
-        value_of(testNode.childNodes[0].innerHTML).should_be("Value = A");
+        value_of(testNode.innerHTML).should_be("Value = A");
 
         observable("B");
         ko.processAllDeferredBindingUpdates();
-        value_of(testNode.childNodes[0].innerHTML).should_be("Value = B");
+        value_of(testNode.innerHTML).should_be("Value = B");
     },
 
     'Should stop updating DOM nodes when the dependency next changes if the DOM node has been removed from the document': function () {
@@ -173,27 +183,42 @@ describe('Templating', {
 
         ko.renderTemplate("someTemplate", null, null, testNode);
         value_of(testNode.childNodes.length).should_be(1);
-        value_of(testNode.childNodes[0].innerHTML).should_be("Value = A");
+        value_of(testNode.innerHTML).should_be("Value = A");
 
         testNode.parentNode.removeChild(testNode);
         dependency("B");
         ko.processAllDeferredBindingUpdates();
         value_of(testNode.childNodes.length).should_be(1);
-        value_of(testNode.childNodes[0].innerHTML).should_be("Value = A");
+        value_of(testNode.innerHTML).should_be("Value = A");
     },
 
     'Should be able to render a template using data-bind syntax': function () {
         ko.setTemplateEngine(new dummyTemplateEngine({ someTemplate: "template output" }));
         testNode.innerHTML = "<div data-bind='template:\"someTemplate\"'></div>";
         ko.applyBindings(null, testNode);
-        value_of(testNode.childNodes[0]).should_contain_html("<div>template output</div>");
+        value_of(testNode.childNodes[0].innerHTML).should_be("template output");
     },
 
     'Should be able to tell data-bind syntax which object to pass as data for the template (otherwise, uses viewModel)': function () {
         ko.setTemplateEngine(new dummyTemplateEngine({ someTemplate: "result = [js: childProp]" }));
         testNode.innerHTML = "<div data-bind='template: { name: \"someTemplate\", data: someProp }'></div>";
         ko.applyBindings({ someProp: { childProp: 123} }, testNode);
-        value_of(testNode.childNodes[0]).should_contain_html("<div>result = 123</div>");
+        value_of(testNode.childNodes[0].innerHTML).should_be("result = 123");
+    },
+
+    'Should re-render a named template when its data item notifies about mutation': function () {
+        ko.setTemplateEngine(new dummyTemplateEngine({ someTemplate: "result = [js: childProp]" }));
+        testNode.innerHTML = "<div data-bind='template: { name: \"someTemplate\", data: someProp }'></div>";
+
+        var myData = ko.observable({ childProp: 123 });
+        ko.applyBindings({ someProp: myData }, testNode);
+        value_of(testNode.childNodes[0].innerHTML).should_be("result = 123");
+
+        // Now mutate and notify
+        myData().childProp = 456;
+        myData.valueHasMutated();
+        ko.processAllDeferredBindingUpdates();
+        value_of(testNode.childNodes[0].innerHTML).should_be("result = 456");
     },
 
     'Should stop tracking inner observables immediately when the container node is removed from the document': function() {
@@ -207,14 +232,32 @@ describe('Templating', {
         value_of(innerObservable.getSubscriptionsCount()).should_be(0);
     },
 
-    'Should be able to pick template as a function of the data item using data-bind syntax': function () {
-        var templatePicker = function(dataItem) {
+    'Should be able to pick template via an observable model property': function () {
+        ko.setTemplateEngine(new dummyTemplateEngine({
+            firstTemplate: "First template output",
+            secondTemplate: "Second template output"
+        }));
+
+        var chosenTemplate = ko.observable("firstTemplate");
+        testNode.innerHTML = "<div data-bind='template: chosenTemplate'></div>";
+        ko.applyBindings({ chosenTemplate: chosenTemplate }, testNode);
+        value_of(testNode.childNodes[0].innerHTML).should_be("First template output");
+
+        chosenTemplate("secondTemplate");
+        ko.processAllDeferredBindingUpdates();
+        value_of(testNode.childNodes[0].innerHTML).should_be("Second template output");
+    },
+
+    'Should be able to pick template as a function of the data item using data-bind syntax, with the binding context available as a second parameter': function () {
+        var templatePicker = function(dataItem, bindingContext) {
+            // Having the entire binding context available means you can read sibling or parent level properties
+            value_of(bindingContext.$parent.anotherProperty).should_be(456);
             return dataItem.myTemplate;
         };
         ko.setTemplateEngine(new dummyTemplateEngine({ someTemplate: "result = [js: childProp]" }));
         testNode.innerHTML = "<div data-bind='template: { name: templateSelectorFunction, data: someProp }'></div>";
-        ko.applyBindings({ someProp: { childProp: 123, myTemplate: "someTemplate" }, templateSelectorFunction: templatePicker }, testNode);
-        value_of(testNode.childNodes[0]).should_contain_html("<div>result = 123</div>");
+        ko.applyBindings({ someProp: { childProp: 123, myTemplate: "someTemplate" }, templateSelectorFunction: templatePicker, anotherProperty: 456 }, testNode);
+        value_of(testNode.childNodes[0].innerHTML).should_be("result = 123");
     },
 
     'Should be able to chain templates, rendering one from inside another': function () {
@@ -224,7 +267,7 @@ describe('Templating', {
         }));
         testNode.innerHTML = "<div data-bind='template:\"outerTemplate\"'></div>";
         ko.applyBindings(null, testNode);
-        value_of(testNode.childNodes[0]).should_contain_html("<div>outer template output, <div>inner template output <span>123</span></div></div>");
+        value_of(testNode.childNodes[0]).should_contain_html("outer template output, inner template output <span>123</span>");
     },
 
     'Should rerender chained templates when their dependencies change, without rerendering parent templates': function () {
@@ -236,13 +279,13 @@ describe('Templating', {
         }));
         testNode.innerHTML = "<div data-bind='template:\"outerTemplate\"'></div>";
         ko.applyBindings(null, testNode);
-        value_of(testNode.childNodes[0]).should_contain_html("<div>outer template output, <div>abc</div></div>");
+        value_of(testNode.childNodes[0]).should_contain_html("outer template output, abc");
         value_of(timesRenderedOuter).should_be(1);
         value_of(timesRenderedInner).should_be(1);
 
         observable("DEF");
         ko.processAllDeferredBindingUpdates();
-        value_of(testNode.childNodes[0]).should_contain_html("<div>outer template output, <div>def</div></div>");
+        value_of(testNode.childNodes[0]).should_contain_html("outer template output, def");
         value_of(timesRenderedOuter).should_be(1);
         value_of(timesRenderedInner).should_be(2);
     },
@@ -264,19 +307,31 @@ describe('Templating', {
     'Should handle data-bind attributes from inside templates, regardless of element and attribute casing': function () {
         ko.setTemplateEngine(new dummyTemplateEngine({ someTemplate: "<INPUT Data-Bind='value:\"Hi\"' />" }));
         ko.renderTemplate("someTemplate", null, null, testNode);
-        value_of(testNode.childNodes[0].childNodes[0].value).should_be("Hi");
+        value_of(testNode.childNodes[0].value).should_be("Hi");
     },
 
     'Should handle data-bind attributes that include newlines from inside templates': function () {
         ko.setTemplateEngine(new dummyTemplateEngine({ someTemplate: "<input data-bind='value:\n\"Hi\"' />" }));
         ko.renderTemplate("someTemplate", null, null, testNode);
-        value_of(testNode.childNodes[0].childNodes[0].value).should_be("Hi");
+        value_of(testNode.childNodes[0].value).should_be("Hi");
     },
 
     'Data binding syntax should be able to reference variables put into scope by the template engine': function () {
         ko.setTemplateEngine(new dummyTemplateEngine({ someTemplate: "<input data-bind='value:message' />" }));
         ko.renderTemplate("someTemplate", null, { templateRenderingVariablesInScope: { message: "hello"} }, testNode);
-        value_of(testNode.childNodes[0].childNodes[0].value).should_be("hello");
+        value_of(testNode.childNodes[0].value).should_be("hello");
+    },
+
+    'Data binding syntax should be able to use $element in binding value': function() {
+        ko.setTemplateEngine(new dummyTemplateEngine({ someTemplate: "<div data-bind='text: $element.tagName'></div>" }));
+        ko.renderTemplate("someTemplate", null, null, testNode);
+        value_of(testNode.childNodes[0]).should_contain_text("DIV");
+    },
+
+    'Data binding syntax should be able to use $context in binding value to refer to the context object': function() {
+        ko.setTemplateEngine(new dummyTemplateEngine({ someTemplate: "<div data-bind='text: $context.$data === $data'></div>" }));
+        ko.renderTemplate("someTemplate", {}, null, testNode);
+        value_of(testNode.childNodes[0]).should_contain_text("true");
     },
 
     'Data binding syntax should defer evaluation of variables until the end of template rendering (so bindings can take independent subscriptions to them)': function () {
@@ -284,7 +339,7 @@ describe('Templating', {
             someTemplate: "<input data-bind='value:message' />[js: message = 'goodbye'; undefined; ]"
         }));
         ko.renderTemplate("someTemplate", null, { templateRenderingVariablesInScope: { message: "hello"} }, testNode);
-        value_of(testNode.childNodes[0].childNodes[0].value).should_be("goodbye");
+        value_of(testNode.childNodes[0].value).should_be("goodbye");
     },
 
     'Data binding syntax should use the template\'s \'data\' object as the viewModel value (so \'this\' is set correctly when calling click handlers etc.)': function() {
@@ -296,7 +351,7 @@ describe('Templating', {
             someFunctionOnModel : function() { this.didCallMyFunction = true }
         };
         ko.renderTemplate("someTemplate", viewModel, null, testNode);
-        var buttonNode = testNode.childNodes[0].childNodes[0];
+        var buttonNode = testNode.childNodes[0];
         value_of(buttonNode.tagName).should_be("BUTTON"); // Be sure we're clicking the right thing
         buttonNode.click();
         value_of(viewModel.didCallMyFunction).should_be(true);
@@ -333,7 +388,7 @@ describe('Templating', {
 
     'Data binding syntax should support \'foreach\' option, whereby it renders for each item in an array but doesn\'t rerender everything if you push or splice': function () {
         var myArray = new ko.observableArray([{ personName: "Bob" }, { personName: "Frank"}]);
-        ko.setTemplateEngine(new dummyTemplateEngine({ itemTemplate: "The item is [js: personName]" }));
+        ko.setTemplateEngine(new dummyTemplateEngine({ itemTemplate: "<div>The item is [js: personName]</div>" }));
         testNode.innerHTML = "<div data-bind='template: { name: \"itemTemplate\", foreach: myCollection }'></div>";
 
         ko.applyBindings({ myCollection: myArray }, testNode);
@@ -354,7 +409,7 @@ describe('Templating', {
         testNode.innerHTML = "<div data-bind='template: { name: \"itemTemplate\", foreach: myCollection }'></div>";
 
         ko.applyBindings({ myCollection: myArray }, testNode);
-        value_of(testNode.childNodes[0]).should_contain_html("<div>the item is <span>bob</span></div><div>the item is <span>frank</span></div>");
+        value_of(testNode.childNodes[0]).should_contain_html("the item is <span>bob</span>the item is <span>frank</span>");
     },
 
     'Data binding \'foreach\' options should only bind each group of output nodes once': function() {
@@ -367,13 +422,51 @@ describe('Templating', {
         value_of(initCalls).should_be(3); // 3 because there were 3 items in myCollection
     },
 
+    'Data binding \'foreach\' should handle templates in which the very first node has a binding': function() {
+        // Represents https://github.com/SteveSanderson/knockout/pull/440
+        // Previously, the rewriting (which introduces a comment node before the bound node) was interfering
+        // with the array-to-DOM-node mapping state tracking
+        ko.setTemplateEngine(new dummyTemplateEngine({ mytemplate: "<div data-bind='text: $data'></div>" }));
+        testNode.innerHTML = "<div data-bind=\"template: { name: 'mytemplate', foreach: items }\"></div>";
+
+        // Bind against initial array containing one entry. UI just shows "original"
+        var myArray = ko.observableArray(["original"]);
+        ko.applyBindings({ items: myArray });
+        value_of(testNode.childNodes[0]).should_contain_html("<div>original</div>");
+
+        // Now replace the entire array contents with one different entry.
+        // UI just shows "new" (previously with bug, showed "original" AND "new")
+        myArray(["new"]);
+        ko.processAllDeferredBindingUpdates();
+        value_of(testNode.childNodes[0]).should_contain_html("<div>new</div>");
+    },
+
+    'Data binding \'foreach\' should handle chained templates in which the very first node has a binding': function() {
+        // See https://github.com/SteveSanderson/knockout/pull/440 and https://github.com/SteveSanderson/knockout/pull/144
+        ko.setTemplateEngine(new dummyTemplateEngine({
+            outerTemplate: "<div data-bind='text: $data'></div>[renderTemplate:innerTemplate]x", // [renderTemplate:...] is special syntax supported by dummy template engine
+            innerTemplate: "inner <span data-bind='text: 123'></span>"
+        }));
+        testNode.innerHTML = "<div data-bind=\"template: { name: 'outerTemplate', foreach: items }\"></div>";
+
+        // Bind against initial array containing one entry.
+        var myArray = ko.observableArray(["original"]);
+        ko.applyBindings({ items: myArray });
+        value_of(testNode.childNodes[0]).should_contain_html("<div>original</div>inner <span>123</span>x");
+
+        // Now replace the entire array contents with one different entry.
+        myArray(["new"]);
+        ko.processAllDeferredBindingUpdates();
+        value_of(testNode.childNodes[0]).should_contain_html("<div>new</div>inner <span>123</span>x");
+    },
+
     'Data binding \'foreach\' option should apply bindings with an $index in the context': function () {
         var myArray = new ko.observableArray([{ personName: "Bob" }, { personName: "Frank"}]);
         ko.setTemplateEngine(new dummyTemplateEngine({ itemTemplate: "The item # is <span data-bind='text: $index'></span>" }));
         testNode.innerHTML = "<div data-bind='template: { name: \"itemTemplate\", foreach: myCollection }'></div>";
 
         ko.applyBindings({ myCollection: myArray }, testNode);
-        value_of(testNode.childNodes[0]).should_contain_html("<div>the item # is <span>0</span></div><div>the item # is <span>1</span></div>");
+        value_of(testNode.childNodes[0]).should_contain_html("the item # is <span>0</span>the item # is <span>1</span>");
     },
 
     'Data binding \'foreach\' option should update bindings that reference an $index if the list changes': function () {
@@ -382,15 +475,15 @@ describe('Templating', {
         testNode.innerHTML = "<div data-bind='template: { name: \"itemTemplate\", foreach: myCollection }'></div>";
 
         ko.applyBindings({ myCollection: myArray }, testNode);
-        value_of(testNode.childNodes[0]).should_contain_html("<div>the item <span>bob</span>is <span>0</span></div><div>the item <span>frank</span>is <span>1</span></div>");
+        value_of(testNode.childNodes[0]).should_contain_html("the item <span>bob</span>is <span>0</span>the item <span>frank</span>is <span>1</span>");
 
         var frank = myArray.pop(); // remove frank
         ko.processAllDeferredBindingUpdates();
-        value_of(testNode.childNodes[0]).should_contain_html("<div>the item <span>bob</span>is <span>0</span></div>");
+        value_of(testNode.childNodes[0]).should_contain_html("the item <span>bob</span>is <span>0</span>");
 
         myArray.unshift(frank); // put frank in the front
         ko.processAllDeferredBindingUpdates();
-        value_of(testNode.childNodes[0]).should_contain_html("<div>the item <span>frank</span>is <span>0</span></div><div>the item <span>bob</span>is <span>1</span></div>");
+        value_of(testNode.childNodes[0]).should_contain_html("the item <span>frank</span>is <span>0</span>the item <span>bob</span>is <span>1</span>");
 
     },
 
@@ -400,13 +493,13 @@ describe('Templating', {
         testNode.innerHTML = "<div data-bind='template: { name: \"itemTemplate\", foreach: myCollection }'></div>";
 
         ko.applyBindings({ myCollection: myArray }, testNode);
-        value_of(testNode.childNodes[0]).should_contain_html("<div>the item is <span>undefined</span></div><div>the item is <span>null</span></div>");
+        value_of(testNode.childNodes[0]).should_contain_html("the item is <span>undefined</span>the item is <span>null</span>");
     },
 
     'Data binding \'foreach\' option should update DOM nodes when a dependency of their mapping function changes': function() {
         var myObservable = new ko.observable("Steve");
         var myArray = new ko.observableArray([{ personName: "Bob" }, { personName: myObservable }, { personName: "Another" }]);
-        ko.setTemplateEngine(new dummyTemplateEngine({ itemTemplate: "The item is [js: ko.utils.unwrapObservable(personName)]" }));
+        ko.setTemplateEngine(new dummyTemplateEngine({ itemTemplate: "<div>The item is [js: ko.utils.unwrapObservable(personName)]</div>" }));
         testNode.innerHTML = "<div data-bind='template: { name: \"itemTemplate\", foreach: myCollection }'></div>";
 
         ko.applyBindings({ myCollection: myArray }, testNode);
@@ -443,6 +536,17 @@ describe('Templating', {
         value_of(testNode.childNodes[0].childNodes.length).should_be(0);
     },
 
+    'Data binding \'foreach\' option should accept an \"as\" option to define an alias for the iteration variable': function() {
+        // Note: There are more detailed specs (e.g., covering nesting) associated with the "foreach" binding which
+        // uses this templating functionality internally.
+        var myArray = new ko.observableArray(["A", "B"]);
+        ko.setTemplateEngine(new dummyTemplateEngine({ itemTemplate: "[js:myAliasedItem]" }));
+        testNode.innerHTML = "<div data-bind='template: { name: \"itemTemplate\", foreach: myCollection, as: \"myAliasedItem\" }'></div>";
+
+        ko.applyBindings({ myCollection: myArray }, testNode);
+        value_of(testNode.childNodes[0]).should_contain_text("AB");
+    },
+
     'Data binding \'foreach\' option should stop tracking inner observables when the container node is removed': function() {
         var innerObservable = ko.observable("some value");
         var myArray = new ko.observableArray([{obsVal:innerObservable}, {obsVal:innerObservable}]);
@@ -475,7 +579,7 @@ describe('Templating', {
 
     'Data binding syntax should omit any items whose \'_destroy\' flag is set (unwrapping the flag if it is observable)' : function() {
         var myArray = new ko.observableArray([{ someProp: 1 }, { someProp: 2, _destroy: 'evals to true' }, { someProp : 3 }, { someProp: 4, _destroy: ko.observable(false) }]);
-        ko.setTemplateEngine(new dummyTemplateEngine({ itemTemplate: "someProp=[js: someProp]" }));
+        ko.setTemplateEngine(new dummyTemplateEngine({ itemTemplate: "<div>someProp=[js: someProp]</div>" }));
         testNode.innerHTML = "<div data-bind='template: { name: \"itemTemplate\", foreach: myCollection }'></div>";
 
         ko.applyBindings({ myCollection: myArray }, testNode);
@@ -484,7 +588,7 @@ describe('Templating', {
 
     'Data binding syntax should include any items whose \'_destroy\' flag is set if you use includeDestroyed' : function() {
         var myArray = new ko.observableArray([{ someProp: 1 }, { someProp: 2, _destroy: 'evals to true' }, { someProp : 3 }]);
-        ko.setTemplateEngine(new dummyTemplateEngine({ itemTemplate: "someProp=[js: someProp]" }));
+        ko.setTemplateEngine(new dummyTemplateEngine({ itemTemplate: "<div>someProp=[js: someProp]</div>" }));
         testNode.innerHTML = "<div data-bind='template: { name: \"itemTemplate\", foreach: myCollection, includeDestroyed: true }'></div>";
 
         ko.applyBindings({ myCollection: myArray }, testNode);
@@ -539,9 +643,9 @@ describe('Templating', {
 
         var viewModel = { myProp: ko.observable({ childProp: 'abc' }) };
         ko.applyBindings(viewModel, testNode);
-        value_of(testNode.childNodes[0].childNodes[0]).should_contain_text("Value: abc");
-        value_of(testNode.childNodes[0].childNodes[1]).should_contain_text("Value: abc");
-        value_of(testNode.childNodes[0].childNodes[2]).should_contain_text("Value: abc");
+        value_of(testNode.childNodes[0].childNodes[0].nodeValue).should_be("Value: abc");
+        value_of(testNode.childNodes[0].childNodes[1].nodeValue).should_be("Value: abc");
+        value_of(testNode.childNodes[0].childNodes[2].nodeValue).should_be("Value: abc");
 
         // Causing the condition to become false causes the output to be removed
         viewModel.myProp(null);
@@ -551,38 +655,41 @@ describe('Templating', {
         // Causing the condition to become true causes the output to reappear
         viewModel.myProp({ childProp: 'def' });
         ko.processAllDeferredBindingUpdates();
-        value_of(testNode.childNodes[0].childNodes[0]).should_contain_text("Value: def");
-        value_of(testNode.childNodes[0].childNodes[1]).should_contain_text("Value: def");
-        value_of(testNode.childNodes[0].childNodes[2]).should_contain_text("Value: def");
+        value_of(testNode.childNodes[0].childNodes[0].nodeValue).should_be("Value: def");
+        value_of(testNode.childNodes[0].childNodes[1].nodeValue).should_be("Value: def");
+        value_of(testNode.childNodes[0].childNodes[2].nodeValue).should_be("Value: def");
     },
 
     'Should be able to populate checkboxes from inside templates, despite IE6 limitations': function () {
         ko.setTemplateEngine(new dummyTemplateEngine({ someTemplate: "<input type='checkbox' data-bind='checked:isChecked' />" }));
         ko.renderTemplate("someTemplate", null, { templateRenderingVariablesInScope: { isChecked: true } }, testNode);
-        value_of(testNode.childNodes[0].childNodes[0].checked).should_be(true);
+        value_of(testNode.childNodes[0].checked).should_be(true);
     },
 
     'Should be able to populate radio buttons from inside templates, despite IE6 limitations': function () {
         ko.setTemplateEngine(new dummyTemplateEngine({ someTemplate: "<input type='radio' name='somename' value='abc' data-bind='checked:someValue' />" }));
         ko.renderTemplate("someTemplate", null, { templateRenderingVariablesInScope: { someValue: 'abc' } }, testNode);
-        value_of(testNode.childNodes[0].childNodes[0].checked).should_be(true);
+        value_of(testNode.childNodes[0].checked).should_be(true);
     },
 
-    'Should be able to render a different template for each array entry by passing a function as template name': function() {
+    'Should be able to render a different template for each array entry by passing a function as template name, with the array entry\'s binding context available as a second parameter': function() {
         var myArray = new ko.observableArray([
             { preferredTemplate: 1, someProperty: 'firstItemValue' },
             { preferredTemplate: 2, someProperty: 'secondItemValue' }
         ]);
         ko.setTemplateEngine(new dummyTemplateEngine({
-            firstTemplate: "Template1Output, [js:someProperty]",
-            secondTemplate: "Template2Output, [js:someProperty]"
+            firstTemplate: "<div>Template1Output, [js:someProperty]</div>",
+            secondTemplate: "<div>Template2Output, [js:someProperty]</div>"
         }));
         testNode.innerHTML = "<div data-bind='template: {name: getTemplateModelProperty, foreach: myCollection}'></div>";
 
-        var getTemplate = function(dataItem) {
+        var getTemplate = function(dataItem, bindingContext) {
+            // Having the item's binding context available means you can read sibling or parent level properties
+            value_of(bindingContext.$parent.anotherProperty).should_be(123);
+
             return dataItem.preferredTemplate == 1 ? 'firstTemplate' : 'secondTemplate';
         };
-        ko.applyBindings({ myCollection: myArray, getTemplateModelProperty: getTemplate }, testNode);
+        ko.applyBindings({ myCollection: myArray, getTemplateModelProperty: getTemplate, anotherProperty: 123 }, testNode);
         value_of(testNode.childNodes[0]).should_contain_html("<div>template1output, firstitemvalue</div><div>template2output, seconditemvalue</div>");
     },
 
@@ -594,7 +701,7 @@ describe('Templating', {
                 { name: "Beta" }
             ])
         };
-        ko.setTemplateEngine(new dummyTemplateEngine({myTemplate: "Person [js:name] has additional property [js:templateOptions.myAdditionalProp]"}));
+        ko.setTemplateEngine(new dummyTemplateEngine({myTemplate: "<div>Person [js:name] has additional property [js:templateOptions.myAdditionalProp]</div>"}));
         testNode.innerHTML = "<div data-bind='template: {name: \"myTemplate\", foreach: people, templateOptions: someAdditionalData }'></div>";
 
         ko.applyBindings(myModel, testNode);
@@ -602,25 +709,27 @@ describe('Templating', {
     },
 
     'If the template binding is updated, should dispose any template subscriptions previously associated with the element': function() {
-        var myModel = {
-            myObservable: ko.observable("some value"),
-            unrelatedObservable: ko.observable()
+        var myObservable = ko.observable("some value"),
+            myModel = {
+                subModel: ko.observable({ myObservable: myObservable })
         };
-        ko.setTemplateEngine(new dummyTemplateEngine({myTemplate: "The value is [js:myObservable()]"}));
-        testNode.innerHTML = "<div data-bind='template: \"myTemplate\", unrelatedBindingHandler: unrelatedObservable()'></div>";
+        ko.setTemplateEngine(new dummyTemplateEngine({myTemplate: "<span>The value is [js:myObservable()]</span>"}));
+        testNode.innerHTML = "<div data-bind='template: {name: \"myTemplate\", data: subModel}'></div>";
         ko.applyBindings(myModel, testNode);
 
         // Right now the template references myObservable, so there should be exactly one subscription on it
-        value_of(testNode.childNodes[0]).should_contain_html("<div>the value is some value</div>");
-        value_of(myModel.myObservable.getSubscriptionsCount()).should_be(1);
+        value_of(testNode.childNodes[0]).should_contain_text("The value is some value");
+        value_of(myObservable.getSubscriptionsCount()).should_be(1);
+        var renderedNode1 = testNode.childNodes[0].childNodes[0];
 
-        // By changing unrelatedObservable, we force the data-bind value to be re-evaluated, setting up a new template subscription,
-        // so there have now existed two subscriptions on myObservable...
-        myModel.unrelatedObservable("any value");
+        // By changing the object for subModel, we force the data-bind value to be re-evaluated and the template to be re-rendered,
+        // setting up a new template subscription, so there have now existed two subscriptions on myObservable...
+        myModel.subModel({ myObservable: myObservable });
         ko.processAllDeferredBindingUpdates();
+        value_of(testNode.childNodes[0].childNodes[0]).should_not_be(renderedNode1);
 
         // ...but, because the old subscription should have been disposed automatically, there should only be one left
-        value_of(myModel.myObservable.getSubscriptionsCount()).should_be(1);
+        value_of(myObservable.getSubscriptionsCount()).should_be(1);
     },
 
     'Should be able to specify a template engine instance using data-bind syntax': function() {
@@ -631,6 +740,15 @@ describe('Templating', {
         ko.applyBindings({ chosenEngine: alternativeTemplateEngine }, testNode);
 
         value_of(testNode.childNodes[0]).should_contain_text("Alternative output");
+    },
+
+    'Should be able to bind $data to an alias using \'as\'': function() {
+        ko.setTemplateEngine(new dummyTemplateEngine({
+            myTemplate: "ValueLiteral: [js:item.prop], ValueBound: <span data-bind='text: item.prop'></span>"
+        }));
+        testNode.innerHTML = "<div data-bind='template: { name: \"myTemplate\", data: someItem, as: \"item\" }'></div>";
+        ko.applyBindings({ someItem: { prop: 'Hello' } }, testNode);
+        value_of(testNode.childNodes[0]).should_contain_text("ValueLiteral: Hello, ValueBound: Hello");
     },
 
     'Data-bind syntax should expose parent binding context as $parent if binding with an explicit \"data\" value': function() {
@@ -660,7 +778,7 @@ describe('Templating', {
                 }
             }
         }, testNode);
-        value_of(testNode.childNodes[0].childNodes[0].childNodes[0].childNodes[0].childNodes[0]).should_contain_text("(Data:INNER, Parent:MIDDLE, Grandparent:OUTER, Root:ROOT, Depth:3)");
+        value_of(testNode.childNodes[0].childNodes[0]).should_contain_text("(Data:INNER, Parent:MIDDLE, Grandparent:OUTER, Root:ROOT, Depth:3)");
     },
 
     'Should not be allowed to rewrite templates that embed anonymous templates': function() {
@@ -707,11 +825,24 @@ describe('Templating', {
         });
     },
 
+    'Data binding syntax should permit nested templates using virtual containers (with arbitrary internal whitespace and newlines)': function() {
+        ko.setTemplateEngine(new dummyTemplateEngine({
+            outerTemplate: "Outer <!-- ko template: \n" +
+                "{ name: \"innerTemplate\" } \n" +
+                "--><!-- /ko -->",
+            innerTemplate: "Inner via inline binding: <span data-bind='text: \"someText\"'></span>"
+        }));
+        var model = { };
+        testNode.innerHTML = "<div data-bind='template: { name: \"outerTemplate\" }'></div>";
+        ko.applyBindings(model, testNode);
+        value_of(testNode.childNodes[0]).should_contain_html("outer <!-- ko -->inner via inline binding: <span>sometext</span><!-- /ko -->");
+    },
+
     'Should be able to render anonymous templates using virtual containers': function() {
         ko.setTemplateEngine(new dummyTemplateEngine());
         testNode.innerHTML = "Start <!-- ko template: { data: someData } -->Childprop: [js: childProp]<!-- /ko --> End";
         ko.applyBindings({ someData: { childProp: 'abc' } }, testNode);
-        value_of(testNode).should_contain_html("start <!-- ko template: { data: somedata } --><div>childprop: abc</div><!-- /ko -->end");
+        value_of(testNode).should_contain_html("start <!-- ko template: { data: somedata } -->childprop: abc<!-- /ko -->end");
     },
 
     'Should be able to use anonymous templates that contain first-child comment nodes': function() {
@@ -730,5 +861,22 @@ describe('Templating', {
         testNode.innerHTML = "<div data-bind='template: {}'><!-- ko nonexistentHandler: true --><span data-bind='countInits: true'></span><!-- /ko --></div>";
         ko.applyBindings(null, testNode);
         value_of(initCalls).should_be(1);
+    },
+
+    'Should not throw errors if trying to apply text to a non-rendered node': function() {
+        // Represents https://github.com/SteveSanderson/knockout/issues/660
+        // A <span> can't go directly into a <tr>, so modern browsers will silently strip it. We need to verify this doesn't
+        // throw errors during unmemoization (when unmemoizing, it will try to apply the text to the following text node
+        // instead of the node you intended to bind to).
+        // Note that IE < 9 won't strip the <tr>; instead it has much stranger behaviors regarding unexpected DOM structures.
+        // It just happens not to give an error in this particular case, though it would throw errors in many other cases
+        // of malformed template DOM.
+        ko.setTemplateEngine(new dummyTemplateEngine({
+            myTemplate: "<tr><span data-bind=\"text: 'Some text'\"></span> </tr>" // The whitespace after the closing span is what triggers the strange HTML parsing
+        }));
+        testNode.innerHTML = "<div data-bind='template: \"myTemplate\"'></div>";
+        ko.applyBindings(null, testNode);
+        // Since the actual template markup was invalid, we don't really care what the
+        // resulting DOM looks like. We are only verifying there were no exceptions.
     }
 })

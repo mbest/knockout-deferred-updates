@@ -24,10 +24,10 @@ describe('Compare Arrays', {
         var compareResult = ko.utils.compareArrays(oldArray, newArray);
         value_of(compareResult).should_be([
             { status: "retained", value: "A" },
-            { status: "added", value: "A2" },
-            { status: "added", value: "A3" },
+            { status: "added", value: "A2", index: 1 },
+            { status: "added", value: "A3", index: 2 },
             { status: "retained", value: "B" },
-            { status: "added", value: "B2" }
+            { status: "added", value: "B2", index: 4 }
         ]);
     },
 
@@ -36,10 +36,10 @@ describe('Compare Arrays', {
         var newArray = ["B", "C", "E"];
         var compareResult = ko.utils.compareArrays(oldArray, newArray);
         value_of(compareResult).should_be([
-            { status: "deleted", value: "A" },
+            { status: "deleted", value: "A", index: 0 },
             { status: "retained", value: "B" },
             { status: "retained", value: "C" },
-            { status: "deleted", value: "D" },
+            { status: "deleted", value: "D", index: 3 },
             { status: "retained", value: "E" }
         ]);
     },
@@ -49,13 +49,34 @@ describe('Compare Arrays', {
         var newArray = [123, "A", "E", "C", "D"];
         var compareResult = ko.utils.compareArrays(oldArray, newArray);
         value_of(compareResult).should_be([
-            { status: "added", value: 123 },
+            { status: "added", value: 123, index: 0 },
             { status: "retained", value: "A" },
-            { status: "deleted", value: "B" },
-            { status: "added", value: "E" },
+            { status: "deleted", value: "B", index: 1 },
+            { status: "added", value: "E", index: 2, moved: 4 },
             { status: "retained", value: "C" },
             { status: "retained", value: "D" },
-            { status: "deleted", value: "E" }
+            { status: "deleted", value: "E", index: 4, moved: 2 }
+        ]);
+    },
+
+    'Should recognize replaced array': function () {
+        var oldArray = ["A", "B", "C", "D", "E"];
+        var newArray = ["F", "G", "H", "I", "J"];
+        var compareResult = ko.utils.compareArrays(oldArray, newArray);
+        // The order of added and deleted doesn't really matter. We sort by a property that
+        // contains unique values to ensure the results are in a known order for verification.
+        compareResult.sort(function(a, b) { return a.value.localeCompare(b.value) });
+        value_of(compareResult).should_be([
+            { status: "deleted", value: "A", index: 0},
+            { status: "deleted", value: "B", index: 1},
+            { status: "deleted", value: "C", index: 2},
+            { status: "deleted", value: "D", index: 3},
+            { status: "deleted", value: "E", index: 4},
+            { status: "added", value: "F", index: 0},
+            { status: "added", value: "G", index: 1},
+            { status: "added", value: "H", index: 2},
+            { status: "added", value: "I", index: 3},
+            { status: "added", value: "J", index: 4}
         ]);
     }
 });
@@ -213,17 +234,37 @@ describe('Array to DOM node children mapping', {
         value_of(countCallbackInvocations).should_be(mappingInvocations.length);
 
         mappingInvocations = [], countCallbackInvocations = 0;
-        var observable = ko.observable(1);
-        ko.utils.setDomNodeChildrenFromArrayMapping(testNode, [observable, null, "B"], mapping, null, callback); // Add to beginning; delete from end
+        ko.utils.setDomNodeChildrenFromArrayMapping(testNode, ["C", "B", "A"], mapping, null, callback); // Move items
+        value_of(ko.utils.arrayMap(testNode.childNodes, function (x) { return x.innerHTML })).should_be(["C", "B", "A"]);
+        value_of(mappingInvocations).should_be([]);
+        value_of(countCallbackInvocations).should_be(mappingInvocations.length);
+
+        // Check that observable items can be added and unwrapped in the mapping function and will update the DOM.
+        // Also check that observables accessed in the callback function do not update the DOM.
+        mappingInvocations = [], countCallbackInvocations = 0;
+        var observable = ko.observable(1), callbackObservable = ko.observable(1);
+        var callback2 = function(arrayItem, nodes) {
+            callbackObservable();
+            callback(arrayItem, nodes);
+        };
+        ko.utils.setDomNodeChildrenFromArrayMapping(testNode, [observable, null, "B"], mapping, null, callback2); // Add to beginning; delete from end
         value_of(ko.utils.arrayMap(testNode.childNodes, function (x) { return x.innerHTML })).should_be(["1", "null", "B"]);
         value_of(mappingInvocations).should_be([observable, null]);
         value_of(countCallbackInvocations).should_be(mappingInvocations.length);
 
+        // Change the value of the mapped observable and verify that the DOM is updated
         mappingInvocations = [], countCallbackInvocations = 0;
-        observable(2);      // Change the value of the observable
+        observable(2);
         ko.processAllDeferredBindingUpdates();
         value_of(ko.utils.arrayMap(testNode.childNodes, function (x) { return x.innerHTML })).should_be(["2", "null", "B"]);
         value_of(mappingInvocations).should_be([observable]);
         value_of(countCallbackInvocations).should_be(mappingInvocations.length);
+
+        // Change the value of the callback observable and verify that the DOM wasn't updated
+        mappingInvocations = [], countCallbackInvocations = 0;
+        callbackObservable(2);
+        ko.processAllDeferredBindingUpdates();
+        value_of(mappingInvocations.length).should_be(0);
+        value_of(countCallbackInvocations).should_be(0);
     }
 });

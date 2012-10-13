@@ -1,7 +1,7 @@
 // Deferred Updates plugin for Knockout http://knockoutjs.com/
 // (c) Michael Best, Steven Sanderson
 // License: MIT (http://www.opensource.org/licenses/mit-license.php)
-// Version 1.1.0
+// Version 1.2.0
 
 (function(ko, undefined) {
 
@@ -153,9 +153,22 @@ var oldComputed = ko.computed,
     computedName = findPropertyName(ko, oldComputed),
     koProtoName = findPropertyName(oldComputed.fn, oldComputed),
     computedProto = ko.computed(function() {}),
+    peekName = findPropertyName(computedProto, computedProto.peek) || 'peek',
+    isActiveName = findPropertyName(computedProto, computedProto.isActive) || 'isActive',
     getDependenciesCountName = findPropertyName(computedProto, computedProto.getDependenciesCount),
     hasWriteFunctionName = findPropertyName(computedProto, false),
-    disposeName = findPropertyName(computedProto, computedProto.dispose);
+    disposeName = findPropertyName(computedProto, computedProto.dispose),
+    disposeWhenNodeIsRemovedName = 'disposeWhenNodeIsRemoved',
+    disposeWhenName = 'disposeWhen';
+
+// Find hidden names for disposeWhenNodeIsRemoved and disposeWhen by examining the function source
+if (hasWriteFunctionName != 'hasWriteFunction') {
+    var oldComputedStr = oldComputed.toString(), match1, match2;
+    if (match1 = oldComputedStr.match(/.\.disposeWhenNodeIsRemoved\|\|.\.([^|]+)\|\|/))
+        disposeWhenNodeIsRemovedName = match1[1];
+    if (match2 = oldComputedStr.match(/.\.disposeWhen\|\|.\.([^|]+)\|\|/))
+        disposeWhenName = match2[1];
+}
 
 // Find ko.utils.domNodeIsAttachedToDocument
 var nodeInDocName = findNameMethodSignatureContaining(ko.utils, 'ocument)');
@@ -376,6 +389,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
             } else {
                 throw new Error("Cannot write a value to a ko.computed unless you specify a 'write' option. If you wish to read the current value, don't pass any parameters.");
             }
+            return this; // Permits chained assignments
         } else {
             // Reading the value
             if (_needsEvaluation || _possiblyNeedsEvaluation)
@@ -385,19 +399,30 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         }
     }
 
+    function peek() {
+        if (_needsEvaluation || _possiblyNeedsEvaluation)
+            evaluateImmediate(true);
+        return _latestValue;
+    }
+
+    function isActive() {
+        return _needsEvaluation || _possiblyNeedsEvaluation || _subscriptionsToDependencies.length > 0;
+    }
+
     // Need to set disposeWhenNodeIsRemoved here in case we get a notification during the initial evaluation
-    var disposeWhenNodeIsRemoved = (typeof options["disposeWhenNodeIsRemoved"] == "object") ? options["disposeWhenNodeIsRemoved"] : null;
+    var disposeWhenNodeIsRemoved = options[disposeWhenNodeIsRemovedName] || options.disposeWhenNodeIsRemoved || null;
 
     if (options['deferEvaluation'] !== true)
         evaluateInitial();
 
     var dispose = disposeAllSubscriptionsToDependencies;
 
-    // Build "disposeWhenNodeIsRemoved" and "disposeWhenNodeIsRemovedCallback" option values
+    // Build "disposeWhenNodeIsRemoved" and "disposeWhenNodeIsRemovedCallback" option values.
+    // But skip if isActive is false (there will never be any dependencies to dispose).
     // (Note: "disposeWhenNodeIsRemoved" option both proactively disposes as soon as the node is removed using ko.removeNode(),
     // plus adds a "disposeWhen" callback that, on each evaluation, disposes if the node was removed by some other means.)
-    var disposeWhen = options["disposeWhen"] || function() { return false; };
-    if (disposeWhenNodeIsRemoved) {
+    var disposeWhen = options[disposeWhenName] || options.disposeWhen || function() { return false; };
+    if (disposeWhenNodeIsRemoved && isActive()) {
         dispose = function() {
             ko.utils.domNodeDisposal.removeDisposeCallback(disposeWhenNodeIsRemoved, arguments.callee);
             disposeAllSubscriptionsToDependencies();
@@ -413,9 +438,11 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     ko.subscribable.call(dependentObservable);
     ko.utils.extend(dependentObservable, newComputed.fn);
 
+    dependentObservable[peekName] = dependentObservable.peek = peek;
     dependentObservable[getDependenciesCountName] = dependentObservable.getDependenciesCount = function () { return _subscriptionsToDependencies.length; };
     dependentObservable[hasWriteFunctionName] = dependentObservable.hasWriteFunction = typeof writeFunction === "function";
     dependentObservable[disposeName] = dependentObservable.dispose = function () { dispose(); };
+    dependentObservable[isActiveName] = dependentObservable.isActive = isActive;
     dependentObservable.getDependencies = function() {
         return ko.utils.arrayMap(
             ko.utils.arrayFilter(
