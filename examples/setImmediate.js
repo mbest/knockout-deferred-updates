@@ -1,22 +1,3 @@
-﻿/*jshint curly: true, eqeqeq: true, immed: true, newcap: true, noarg: true, nonew: true, undef: true, white: true, trailing: true, evil: true */
-
-/* A cross-browser setImmediate and clearImmediate:
- * https://dvcs.w3.org/hg/webperf/raw-file/tip/specs/setImmediate/Overview.html
- * Uses one of the following implementations:
- *  - Native msSetImmediate/msClearImmediate in IE10
- *  - MessageChannel in supporting (very recent) browsers: advantageous because it works in a web worker context
- *  - postMessage in Firefox 3+, Internet Explorer 9+, WebKit, and Opera 9.5+ (except where MessageChannel is used)
- *  - <script> element onreadystatechange in Internet Explorer 6–8
- *  - setTimeout(..., 0) in all other browsers
- * In other words, setImmediate and clearImmediate are safe in all browsers.
- *
- * Copyright © 2011 Barnesandnoble.com llc, Donavon West, and Domenic Denicola.
- * Special thanks to Yaffle (https://github.com/Yaffle) for his bug reports, fork, pull requests, and general
- * discussion, all of which have made setImmediate.js much better than its original form.
- * 
- * Released under the MIT license (see MIT-LICENSE.txt).
- */
-
 (function (global, undefined) {
     "use strict";
 
@@ -33,6 +14,7 @@
                 this.handler.apply(undefined, this.args);
             } else {
                 var scriptSource = "" + this.handler;
+                /*jshint evil: true */
                 eval(scriptSource);
             }
         };
@@ -66,7 +48,7 @@
                         }
                     }
                 } else {
-                    // Delay by doing a setTimeout. setImmediate was tried instead, but in Firefox 7 it generated a 
+                    // Delay by doing a setTimeout. setImmediate was tried instead, but in Firefox 7 it generated a
                     // "too much recursion" error.
                     global.setTimeout(function () {
                         tasks.runIfPresent(handle);
@@ -79,8 +61,10 @@
         };
     }());
 
-    function hasMicrosoftImplementation() {
-        return !!(global.msSetImmediate && global.msClearImmediate);
+    function canUseNextTick() {
+        // Don't get fooled by e.g. browserify environments.
+        return typeof process === "object" &&
+               Object.prototype.toString.call(process) === "[object process]";
     }
 
     function canUseMessageChannel() {
@@ -104,28 +88,34 @@
         global.onmessage = oldOnMessage;
 
         return postMessageIsAsynchronous;
-        return false;
     }
 
     function canUseReadyStateChange() {
         return "document" in global && "onreadystatechange" in global.document.createElement("script");
     }
 
-    function aliasMicrosoftImplementation(attachTo) {
-        attachTo.setImmediate = global.msSetImmediate;
-        attachTo.clearImmediate = global.msClearImmediate;
-    }
-
-    function installMessageChannelImplementation(attachTo) {
+    function installNextTickImplementation(attachTo) {
         attachTo.setImmediate = function () {
             var handle = tasks.addFromSetImmediateArguments(arguments);
 
-            // Create a channel and immediately post a message to it with the handle.
-            var channel = new global.MessageChannel();
-            channel.port1.onmessage = function () {
+            process.nextTick(function () {
                 tasks.runIfPresent(handle);
-            };
-            channel.port2.postMessage();
+            });
+
+            return handle;
+        };
+    }
+
+    function installMessageChannelImplementation(attachTo) {
+        var channel = new global.MessageChannel();
+        channel.port1.onmessage = function (event) {
+            var handle = event.data;
+            tasks.runIfPresent(handle);
+        };
+        attachTo.setImmediate = function () {
+            var handle = tasks.addFromSetImmediateArguments(arguments);
+
+            channel.port2.postMessage(handle);
 
             return handle;
         };
@@ -174,7 +164,7 @@
 
             // Create a <script> element; its readystatechange event will be fired asynchronously once it is inserted
             // into the document. Do so, thus queuing up the task. Remember to clean up once it's been called.
-            var scriptEl = document.createElement("script");
+            var scriptEl = global.document.createElement("script");
             scriptEl.onreadystatechange = function () {
                 tasks.runIfPresent(handle);
 
@@ -182,7 +172,7 @@
                 scriptEl.parentNode.removeChild(scriptEl);
                 scriptEl = null;
             };
-            document.documentElement.appendChild(scriptEl);
+            global.document.documentElement.appendChild(scriptEl);
 
             return handle;
         };
@@ -191,7 +181,7 @@
     function installSetTimeoutImplementation(attachTo) {
         attachTo.setImmediate = function () {
             var handle = tasks.addFromSetImmediateArguments(arguments);
-            
+
             global.setTimeout(function () {
                 tasks.runIfPresent(handle);
             }, 0);
@@ -206,25 +196,23 @@
                           Object.getPrototypeOf(global)
                         : global;
 
-        if (hasMicrosoftImplementation()) {
-            // For IE10
-            aliasMicrosoftImplementation(attachTo);
+        if (canUseNextTick()) {
+            // For Node.js before 0.9
+            installNextTickImplementation(attachTo);
+        } else if (canUsePostMessage()) {
+            // For non-IE10 modern browsers
+            installPostMessageImplementation(attachTo);
+        } else if (canUseMessageChannel()) {
+            // For web workers, where supported
+            installMessageChannelImplementation(attachTo);
+        } else if (canUseReadyStateChange()) {
+            // For IE 6–8
+            installReadyStateChangeImplementation(attachTo);
         } else {
-            if (canUseMessageChannel()) {
-                // For super-modern browsers; also works inside web workers
-                installMessageChannelImplementation(attachTo);
-            } else if (canUsePostMessage()) {
-                // For modern browsers
-                installPostMessageImplementation(attachTo);
-            } else if (canUseReadyStateChange()) {
-                // For IE 6–8
-                installReadyStateChangeImplementation(attachTo);
-            } else {
-                // For older browsers
-                installSetTimeoutImplementation(attachTo);
-            }
-
-            attachTo.clearImmediate = tasks.remove;
+            // For older browsers
+            installSetTimeoutImplementation(attachTo);
         }
+
+        attachTo.clearImmediate = tasks.remove;
     }
-}(this));
+}(typeof global === "object" && global ? global : this));
