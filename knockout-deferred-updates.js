@@ -1,7 +1,7 @@
 // Deferred Updates plugin for Knockout http://knockoutjs.com/
 // (c) Michael Best, Steven Sanderson
 // License: MIT (http://www.opensource.org/licenses/mit-license.php)
-// Version 1.2.0
+// Version 1.2.1
 
 (function(ko, undefined) {
 
@@ -9,7 +9,7 @@
  * Task manager for deferred tasks
  */
 ko.tasks = (function() {
-    var setImmediate = !!window['setImmediate'] ? 'setImmediate' : 'setTimeout';    // Use setImmediate function if available; otherwise use setTimeout
+    var setImmediate = !!window.setImmediate ? 'setImmediate' : 'setTimeout';    // Use setImmediate function if available; otherwise use setTimeout
     var evaluatorHandler, evaluatorsArray = [], taskStack = [], indexProcessing;
 
     function pushTaskState() {
@@ -246,23 +246,23 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         _isBeingEvaluated = false,
         readFunction = evaluatorFunctionOrOptions;
 
-    if (readFunction && typeof readFunction == "object") {
-        // Single-parameter syntax - everything is on this "options" param
+    if (readFunction && typeof readFunction == 'object') {
+        // Single-parameter syntax - everything is on this 'options' param
         options = readFunction;
-        readFunction = options["read"];
+        readFunction = options.read;
     } else {
         // Multi-parameter syntax - construct the options according to the params passed
         options = options || {};
         if (!readFunction)
-            readFunction = options["read"];
+            readFunction = options.read;
     }
-    // By here, "options" is always non-null
-    if (typeof readFunction != "function")
-        throw new Error("Pass a function that returns the value of the ko.computed");
+    // By here, 'options' is always non-null
+    if (typeof readFunction != 'function')
+        throw Error('Pass a function that returns the value of the ko.computed');
 
-    var writeFunction = options["write"];
+    var writeFunction = options.write;
     if (!evaluatorFunctionTarget)
-        evaluatorFunctionTarget = options["owner"];
+        evaluatorFunctionTarget = options.owner;
 
     var _subscriptionsToDependencies = [];
     function disposeAllSubscriptionsToDependencies() {
@@ -275,13 +275,13 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
 
     var evaluationTimeoutInstance = null;
     function evaluatePossiblyAsync(value, event) {
-        var isDirtyEvent = (event == "dirty");
+        var isDirtyEvent = (event == 'dirty');
         var shouldNotify = isDirtyEvent && !_possiblyNeedsEvaluation && !_needsEvaluation;
         if (isDirtyEvent)
             _possiblyNeedsEvaluation = true;
         else
             _needsEvaluation = true;
-        var throttleEvaluationTimeout = dependentObservable['throttleEvaluation'];
+        var throttleEvaluationTimeout = dependentObservable.throttleEvaluation;
         if (throttleEvaluationTimeout && throttleEvaluationTimeout >= 0) {
             clearTimeout(evaluationTimeoutInstance);
             evaluationTimeoutInstance = ko.evaluateAsynchronously(evaluateImmediate, throttleEvaluationTimeout);
@@ -290,8 +290,8 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         else if (_needsEvaluation)
             shouldNotify = evaluateImmediate();
 
-        if (shouldNotify && dependentObservable["notifySubscribers"]) {     // notifySubscribers won't exist on first evaluation (but there won't be any subscribers anyway)
-            dependentObservable["notifySubscribers"](_latestValue, "dirty");
+        if (shouldNotify && dependentObservable.notifySubscribers) {     // notifySubscribers won't exist on first evaluation (but there won't be any subscribers anyway)
+            dependentObservable.notifySubscribers(_latestValue, 'dirty');
             if (!_possiblyNeedsEvaluation && throttleEvaluationTimeout)  // The notification might have triggered an evaluation
                 clearTimeout(evaluationTimeoutInstance);
         }
@@ -302,10 +302,10 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     }
 
     function addDependency(subscribable) {
-        var event = "change";
+        var event = 'change';
         if (subscribable[koProtoName] === newComputed) {
-            _subscriptionsToDependencies.push(subscribable.subscribe(markAsChanged, null, "change", false, dependentObservable));
-            event = "dirty";
+            _subscriptionsToDependencies.push(subscribable.subscribe(markAsChanged, null, 'change', false, dependentObservable));
+            event = 'dirty';
         }
         _subscriptionsToDependencies.push(subscribable.subscribe(evaluatePossiblyAsync, null, event, false, dependentObservable));
     }
@@ -352,13 +352,13 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
 
             _possiblyNeedsEvaluation = _needsEvaluation = false;
 
-            dependentObservable["notifySubscribers"](_latestValue, "beforeChange");
+            dependentObservable.notifySubscribers(_latestValue, 'beforeChange');
             _latestValue = newValue;
         } finally {
             depDet.end();
         }
 
-        dependentObservable["notifySubscribers"](_latestValue);
+        dependentObservable.notifySubscribers(_latestValue);
         _isBeingEvaluated = false;
         return true;
     }
@@ -376,18 +376,19 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
 
     function dependentObservable() {
         if (arguments.length > 0) {
-            if (typeof writeFunction === "function") {
+            if (typeof writeFunction === 'function') {
                 // Writing a value
                 // Turn off deferred updates for this observable during the write so that the 'write' is registered
                 // immediately (assuming that the read function accesses any observables that are written to).
                 var saveDeferValue = dependentObservable.deferUpdates;
                 dependentObservable.deferUpdates = false;
-
-                writeFunction.apply(evaluatorFunctionTarget, arguments);
-
-                dependentObservable.deferUpdates = saveDeferValue;
+                try {
+                    writeFunction.apply(evaluatorFunctionTarget, arguments);
+                } finally {
+                    dependentObservable.deferUpdates = saveDeferValue;
+                }
             } else {
-                throw new Error("Cannot write a value to a ko.computed unless you specify a 'write' option. If you wish to read the current value, don't pass any parameters.");
+                throw Error('Cannot write a value to a ko.computed unless you specify a "write" option. If you wish to read the current value, don\'t pass any parameters.');
             }
             return this; // Permits chained assignments
         } else {
@@ -412,15 +413,15 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     // Need to set disposeWhenNodeIsRemoved here in case we get a notification during the initial evaluation
     var disposeWhenNodeIsRemoved = options[disposeWhenNodeIsRemovedName] || options.disposeWhenNodeIsRemoved || null;
 
-    if (options['deferEvaluation'] !== true)
+    if (options.deferEvaluation !== true)
         evaluateInitial();
 
     var dispose = disposeAllSubscriptionsToDependencies;
 
-    // Build "disposeWhenNodeIsRemoved" and "disposeWhenNodeIsRemovedCallback" option values.
+    // Build 'disposeWhenNodeIsRemoved' and 'disposeWhenNodeIsRemovedCallback' option values.
     // But skip if isActive is false (there will never be any dependencies to dispose).
-    // (Note: "disposeWhenNodeIsRemoved" option both proactively disposes as soon as the node is removed using ko.removeNode(),
-    // plus adds a "disposeWhen" callback that, on each evaluation, disposes if the node was removed by some other means.)
+    // (Note: 'disposeWhenNodeIsRemoved' option both proactively disposes as soon as the node is removed using ko.removeNode(),
+    // plus adds a 'disposeWhen' callback that, on each evaluation, disposes if the node was removed by some other means.)
     var disposeWhen = options[disposeWhenName] || options.disposeWhen || function() { return false; };
     if (disposeWhenNodeIsRemoved && isActive()) {
         dispose = function() {
@@ -440,7 +441,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
 
     dependentObservable[peekName] = dependentObservable.peek = peek;
     dependentObservable[getDependenciesCountName] = dependentObservable.getDependenciesCount = function () { return _subscriptionsToDependencies.length; };
-    dependentObservable[hasWriteFunctionName] = dependentObservable.hasWriteFunction = typeof writeFunction === "function";
+    dependentObservable[hasWriteFunctionName] = dependentObservable.hasWriteFunction = typeof writeFunction === 'function';
     dependentObservable[disposeName] = dependentObservable.dispose = function () { dispose(); };
     dependentObservable[isActiveName] = dependentObservable.isActive = isActive;
     dependentObservable.getDependencies = function() {
@@ -471,7 +472,7 @@ oldComputed = computedProto = null;
 /*
  * New throttle extender
  */
-ko.extenders['throttle'] = function(target, timeout) {
+ko.extenders.throttle = function(target, timeout) {
     // Throttling means two things:
 
     if (ko.isWriteableObservable(target)) {
@@ -479,8 +480,8 @@ ko.extenders['throttle'] = function(target, timeout) {
         //     so the target cannot change value synchronously or faster than a certain rate
         var writeTimeoutInstance = null;
         return ko.dependentObservable({
-            'read': target,
-            'write': function(value) {
+            read: target,
+            write: function(value) {
                 clearTimeout(writeTimeoutInstance);
                 writeTimeoutInstance = ko.evaluateAsynchronously(function() {
                     target(value);
@@ -490,7 +491,7 @@ ko.extenders['throttle'] = function(target, timeout) {
     } else {
         // (2) For dependent observables, we throttle *evaluations* so that, no matter how fast its dependencies
         //     notify updates, the target doesn't re-evaluate (and hence doesn't notify) faster than a certain rate
-        target['throttleEvaluation'] = timeout;
+        target.throttleEvaluation = timeout;
         return target;
     }
 };
