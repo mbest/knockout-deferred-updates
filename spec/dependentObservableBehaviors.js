@@ -430,5 +430,26 @@ describe('Dependent Observable', {
         value_of(computed.getDependencies()).should_be([observableToUse, observableB]);
         value_of(observableA.getDependents()).should_be([]);
         value_of(observableB.getDependents()).should_be([computed]);
+    },
+
+    'Should be able to pause/resume a computed using activeWhen': function() {
+        var observable = ko.observable("A");
+        var isActive = ko.observable(true);
+        var computed = ko.computed(function () {
+            return observable();
+        });
+        computed.activeWhen(isActive);   // intially active
+
+        // When not paused, computed is updated normally
+        value_of(computed()).should_be("A");
+        observable("B");
+        value_of(computed()).should_be("B");
+
+        // When paused, computed value stays the same until unpaused
+        isActive(false);
+        observable("C");
+        value_of(computed()).should_be("B");
+        isActive(true);
+        value_of(computed()).should_be("C");
     }
 })

@@ -243,7 +243,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     var _latestValue,
         _possiblyNeedsEvaluation = false,
         _needsEvaluation = true,
-        _isBeingEvaluated = false,
+        _dontEvaluate = false,
         readFunction = evaluatorFunctionOrOptions;
 
     if (readFunction && typeof readFunction == 'object') {
@@ -264,9 +264,12 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     if (!evaluatorFunctionTarget)
         evaluatorFunctionTarget = options.owner;
 
-    var _subscriptionsToDependencies = [];
+    var _subscriptionsToDependencies = [], othersToDispose = [];
     function disposeAllSubscriptionsToDependencies() {
         ko.utils.arrayForEach(_subscriptionsToDependencies, function (subscription) {
+            subscription.dispose();
+        });
+        ko.utils.arrayForEach(othersToDispose, function (subscription) {
             subscription.dispose();
         });
         _subscriptionsToDependencies = [];
@@ -315,7 +318,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     }
 
     function evaluateImmediate(force) {
-        if (_isBeingEvaluated || (!_needsEvaluation && !(force === true))) {    // test for exact *true* value since Firefox will pass an integer value when this function is called through setTimeout
+        if (_dontEvaluate || (!_needsEvaluation && !(force === true))) {    // test for exact *true* value since Firefox will pass an integer value when this function is called through setTimeout
             _possiblyNeedsEvaluation = _needsEvaluation;
             return false;
         }
@@ -326,7 +329,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
             return false;
         }
 
-        _isBeingEvaluated = true;
+        _dontEvaluate = true;
         try {
             // Initially, we assume that none of the subscriptions are still being used (i.e., all are candidates for disposal).
             // Then, during evaluation, we cross off any that are in fact still being used.
@@ -359,19 +362,19 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         }
 
         dependentObservable.notifySubscribers(_latestValue);
-        _isBeingEvaluated = false;
+        _dontEvaluate = false;
         return true;
     }
 
     function evaluateInitial() {
-        _isBeingEvaluated = true;
+        _dontEvaluate = true;
         try {
             depDet[depDetBeginName](addDependency);
             _latestValue = readFunction.call(evaluatorFunctionTarget);
         } finally {
             depDet.end();
         }
-        _needsEvaluation = _isBeingEvaluated = false;
+        _needsEvaluation = _dontEvaluate = false;
     }
 
     function dependentObservable() {
@@ -410,6 +413,20 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         return _needsEvaluation || _possiblyNeedsEvaluation || _subscriptionsToDependencies.length > 0;
     }
 
+    var activeWhenComputed;
+    function activeWhen(obsToWatch) {
+        if (!activeWhenComputed) {
+            activeWhenComputed = ko.computed(function() {
+                _dontEvaluate = !obsToWatch();
+                if (!_dontEvaluate && _needsEvaluation) {
+                    evaluatePossiblyAsync(undefined, 'change');
+                }
+            });
+            activeWhenComputed.deferUpdates = false;
+            othersToDispose.push(activeWhenComputed);
+        }
+    }
+
     // Need to set disposeWhenNodeIsRemoved here in case we get a notification during the initial evaluation
     var disposeWhenNodeIsRemoved = options[disposeWhenNodeIsRemovedName] || options.disposeWhenNodeIsRemoved || null;
 
@@ -444,6 +461,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     dependentObservable[hasWriteFunctionName] = dependentObservable.hasWriteFunction = typeof writeFunction === 'function';
     dependentObservable[disposeName] = dependentObservable.dispose = function () { dispose(); };
     dependentObservable[isActiveName] = dependentObservable.isActive = isActive;
+    dependentObservable.activeWhen = activeWhen;
     dependentObservable.getDependencies = function() {
         return ko.utils.arrayMap(
             ko.utils.arrayFilter(
