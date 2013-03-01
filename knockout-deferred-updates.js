@@ -3,6 +3,18 @@
 // License: MIT (http://www.opensource.org/licenses/mit-license.php)
 // Version 1.2.1
 
+(function(factory) {
+    if (typeof require === 'function' && typeof exports === 'object' && typeof module === 'object') {
+        // [1] CommonJS/Node.js
+        factory(exports, require('knockout'));
+    } else if (typeof define === 'function' && define['amd']) {
+        // [2] AMD anonymous module
+        define(['knockout'], factory);
+    } else {
+        // [3] No module loader (plain <script> tag) - ko is directly in global namespace
+        factory(ko);
+    }
+})
 (function(ko, undefined) {
 
 /*
@@ -514,4 +526,4 @@ ko.extenders.throttle = function(target, timeout) {
     }
 };
 
-})(ko);
+});
