@@ -42,10 +42,17 @@ asyncTest("Should notify subscribers asynchronously after dependencies stop upda
 	var asyncDepObs = ko.dependentObservable(function() {
 		return lastUpdateValue = underlying();
 	}).extend({ throttle: 100 });
-	var notifiedValues = []
+	var notifiedValues = [];
 	asyncDepObs.subscribe(function(value) {
 		notifiedValues.push(value);
 	});
+	var computedNotifiedValues = [];
+    var secondComputed = ko.computed(function() {
+        var value = asyncDepObs();
+        if (value)
+		  computedNotifiedValues.push(value);
+        return value;
+    });
 
 	// Check initial state
 	start();
@@ -55,6 +62,7 @@ asyncTest("Should notify subscribers asynchronously after dependencies stop upda
 	underlying('New value');
 	equal(lastUpdateValue, undefined, 'Should not update synchronously');
 	equal(notifiedValues.length, 0);
+	equal(computedNotifiedValues.length, 0);
 	stop();
 
 	// Wait
@@ -63,6 +71,7 @@ asyncTest("Should notify subscribers asynchronously after dependencies stop upda
 		start();
 		equal(lastUpdateValue, undefined, 'Should not update until throttle timeout');
 		equal(notifiedValues.length, 0);
+    	equal(computedNotifiedValues.length, 0);
 		stop();
 
 		// Wait again
@@ -71,6 +80,8 @@ asyncTest("Should notify subscribers asynchronously after dependencies stop upda
 			equal(lastUpdateValue, 'New value');
 			equal(notifiedValues.length, 1);
 			equal(notifiedValues[0], 'New value');
+        	equal(computedNotifiedValues.length, 1);
+			equal(computedNotifiedValues[0], 'New value');
 		}, 60);
 	}, 50);
 });

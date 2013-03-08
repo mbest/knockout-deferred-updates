@@ -300,8 +300,12 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         }
     }
 
-    function markAsChanged() {
-        _needsEvaluation = true;
+    function markAsChanged(value) {
+        if (!_possiblyNeedsEvaluation && !_needsEvaluation) {
+            evaluatePossiblyAsync(value, 'change');
+        } else {
+            _needsEvaluation = true;
+        }
     }
 
     function addDependency(subscribable) {
