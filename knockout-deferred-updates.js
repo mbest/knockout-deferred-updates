@@ -215,15 +215,16 @@ ko.ignoreDependencies = function(callback, object, args) {
 subFnObj.oldSubscribe = subFnObj[subFnName];    // Save old subscribe function
 subFnObj[subFnName] = function (callback, callbackTarget, event, deferUpdates, computed) {
     event = event || 'change';
+    var newCallback;
     if (!computed) {
-        var newCallback = function(valueToNotify) {
+        newCallback = function(valueToNotify) {
             if (((newComputed.deferUpdates && deferUpdates !== false) || deferUpdates) && event == 'change')
                 ko.tasks.processDelayed(callback, false, {object: callbackTarget, args: [valueToNotify, event]});
             else
                 ko.ignoreDependencies(callback, callbackTarget, [valueToNotify, event]);
         };
     } else {
-        var newCallback = function(valueToNotify) {
+        newCallback = function(valueToNotify) {
             callback(valueToNotify, event);
         };
         if (event == 'change') {
