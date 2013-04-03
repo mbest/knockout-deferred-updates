@@ -1,7 +1,7 @@
 // Deferred Updates plugin for Knockout http://knockoutjs.com/
 // (c) Michael Best, Steven Sanderson
 // License: MIT (http://www.opensource.org/licenses/mit-license.php)
-// Version 1.2.1
+// Version 2.0.0
 
 (function(factory) {
     if (typeof require === 'function' && typeof exports === 'object' && typeof module === 'object') {
@@ -22,7 +22,7 @@
  */
 ko.tasks = (function() {
     var setImmediate = !!window.setImmediate ? 'setImmediate' : 'setTimeout';    // Use setImmediate function if available; otherwise use setTimeout
-    var evaluatorHandler, evaluatorsArray = [], taskStack = [], indexProcessing;
+    var evaluatorHandler, evaluatorsArray = [], evaluatorsExtraArray = [], taskStack = [], indexProcessing;
 
     function pushTaskState() {
         taskStack.push(evaluatorsArray.length);
@@ -40,24 +40,23 @@ ko.tasks = (function() {
 
     function processEvaluators(start) {
         try {
-            // New items might be added to evaluatorsArray during this loop
-            // So always check evaluatorsArray.length
-            for (var i = start || 0; i < evaluatorsArray.length; i++) {
+            for (var i = 0, evObj; evObj = evaluatorsExtraArray[i]; i++) {
                 indexProcessing = i;
-                var evObj = evaluatorsArray[i], evaluator = evObj.evaluator;
                 // Check/set a flag for the evaluator so we don't call it again if processEvaluators is called recursively
                 if (!evObj.processed) {
                     evObj.processed = true;
-                    evaluator.apply(evObj.object, evObj.args || []);
+                    (0,evaluatorsArray[i]).apply(evObj.object, evObj.args || []);
                 }
             }
         } finally {
             if (start) {
                 // Remove only items we've just processed (shorten array to *start* items)
                 evaluatorsArray.splice(start, evaluatorsArray.length);
+                evaluatorsExtraArray.splice(start, evaluatorsExtraArray.length);
             } else {
                 // Clear array and handler to indicate that we're finished
                 evaluatorsArray = [];
+                evaluatorsExtraArray = [];
                 evaluatorHandler = undefined;
             }
             indexProcessing = undefined;
@@ -71,9 +70,8 @@ ko.tasks = (function() {
 
     function isEvaluatorDuplicate(evaluator, extras) {
         for (var i = indexProcessing || currentStart(), j = evaluatorsArray.length; i < j; i++)
-            if (evaluatorsArray[i].evaluator == evaluator && !evaluatorsArray[i].processed) {
-                if (extras)
-                    ko.utils.extend(evaluatorsArray[i], extras);
+            if (evaluatorsArray[i] === evaluator && !evaluatorsExtraArray[i].processed) {
+                evaluatorsExtraArray[i] = extras || {};
                 return true;
             }
         return false;
@@ -94,7 +92,8 @@ ko.tasks = (function() {
                 // Don't add evaluator if distinct is set (or missing) and evaluator is already in list
                 return false;
             }
-            evaluatorsArray.push(ko.utils.extend({evaluator: evaluator}, extras || {}));
+            evaluatorsArray.push(evaluator);
+            evaluatorsExtraArray.push(extras || {});
             if (!taskStack.length && !evaluatorHandler) {
                 evaluatorHandler = window[setImmediate](processEvaluatorsCallback);
             }
@@ -110,14 +109,10 @@ ko.tasks = (function() {
 
     ko.processDeferredBindingUpdatesForNode =       // deprecated (included for compatibility)
     ko.processAllDeferredBindingUpdates = function(node) {
-        // New items might be added to evaluatorsArray during this loop
-        // So always check evaluatorsArray.length
-        for (var i = 0; i < evaluatorsArray.length; i++) {
-            var evObj = evaluatorsArray[i];
+        for (var i = 0, evObj; evObj = evaluatorsExtraArray[i]; i++) {
             if (evObj.node && !evObj.processed) {
                 evObj.processed = true;
-                var evaluator = evaluatorsArray[i].evaluator;
-                evaluator();
+                (0,evaluatorsArray[i])();
             }
         }
     };
@@ -217,12 +212,19 @@ subFnObj[subFnName] = function (callback, callbackTarget, event, deferUpdates, c
     event = event || 'change';
     var newCallback;
     if (!computed) {
-        newCallback = function(valueToNotify) {
-            if (((newComputed.deferUpdates && deferUpdates !== false) || deferUpdates) && event == 'change')
-                ko.tasks.processDelayed(callback, false, {object: callbackTarget, args: [valueToNotify, event]});
-            else
-                ko.ignoreDependencies(callback, callbackTarget, [valueToNotify, event]);
+        var boundCallback = function(valueToNotify) {
+            callback.call(callbackTarget, valueToNotify, event);
         };
+        if (event != 'change') {
+            newCallback = boundCallback;
+        } else {
+            newCallback = function(valueToNotify) {
+                if ((newComputed.deferUpdates && deferUpdates !== false) || deferUpdates)
+                    ko.tasks.processDelayed(boundCallback, true, {args: [valueToNotify]});
+                else
+                    boundCallback(valueToNotify);
+            };
+        }
     } else {
         newCallback = function(valueToNotify) {
             callback(valueToNotify, event);
@@ -238,7 +240,7 @@ subFnObj[subFnName] = function (callback, callbackTarget, event, deferUpdates, c
     subscription.dependent = computed;
     return subscription;
 }
-// Provide a method to return a list a dependents (computed observables that depend on the subscribable)
+// Provide a method to return a list of dependents (computed observables that depend on the subscribable)
 subFnObj.getDependents = function() {
     return this.dependents ? this.dependents.slice(0) : [];
 }
@@ -353,13 +355,14 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
             var disposalCandidates = getDependencies();
 
             depDet[depDetBeginName](function(subscribable) {
-                var inOld, found = false;
-                while ((inOld = ko.utils.arrayIndexOf(disposalCandidates, subscribable)) >= 0) {
+                var inOld;
+                if ((inOld = ko.utils.arrayIndexOf(disposalCandidates, subscribable)) >= 0) {
                     disposalCandidates[inOld] = undefined; // Don't want to dispose this subscription, as it's still being used
-                    found = true;
-                }
-                if (!found)
+                    if (disposalCandidates[++inOld] === subscribable)
+                        disposalCandidates[inOld] = undefined;
+                } else {
                     addDependency(subscribable); // Brand new subscription - add it
+                }
             });
 
             var newValue = readFunction.call(evaluatorFunctionTarget);

@@ -2,7 +2,7 @@
 
 This plugin/patch modifies parts of Knockout’s observable/subscription system to use **deferred updates**.
 
-* **Automatically eliminates duplicate updates.** Instead of updating a computed observable immediately each time one of its dependencies change, this plugin defers updates to computed observables so that mulitple dependency changes are combined into a single update.
+* **Automatically eliminates duplicate updates.** Instead of updating a computed observable immediately each time one of its dependencies change, this plugin defers updates to computed observables so that mulitple dependency changes are combined into a single update. Manual subscriptions are also deferred so that multiple updates to the subscribed observable only result in a single update.
 * **It just works.** This plugin is compatible with most applications built with Knockout. Just include it in the page after *Knockout* to provide an immediate performance boost.
 * **Better than throttle:** Like the *throttle* feature, deferred updates are generally run asynchronously using `setTimeout`. But whereas throttled updates are each scheduled individually with separate `setTimeout` calls, deferred updates run all together using a single `setTimeout`.
 * **Control when updates occur.** By default, deferred updates occur in a `setTimeout` callback. But the user can make updates happen earlier:

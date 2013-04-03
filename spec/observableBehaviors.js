@@ -56,12 +56,29 @@ describe('Observable', {
         });
 
         instance('A');
-        instance('B');
-
         ko.processAllDeferredUpdates();
+
+        instance('B');
+        ko.processAllDeferredUpdates();
+
         value_of(notifiedValues.length).should_be(2);
         value_of(notifiedValues[0]).should_be('A');
         value_of(notifiedValues[1]).should_be('B');
+    },
+
+    'Should notify subscribers about only latest when using deferred updates value': function () {
+        var instance = new ko.observable();
+        var notifiedValues = [];
+        instance.subscribe(function (value) {
+            notifiedValues.push(value);
+        });
+
+        instance('A');
+        instance('B');
+        ko.processAllDeferredUpdates();
+
+        value_of(notifiedValues.length).should_be(1);
+        value_of(notifiedValues[0]).should_be('B');
     },
 
     'Should be able to tell it that its value has mutated, at which point it notifies subscribers': function () {
