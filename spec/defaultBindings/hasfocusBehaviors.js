@@ -1,7 +1,8 @@
-describe('Binding: Hasfocus', {
-    before_each: JSSpec.prepareTestNode,
+describe('Binding: Hasfocus', function() {
+    beforeEach(jasmine.prepareTestNode);
+    beforeEach(function() { waits(1); }); // Workaround for spurious focus-timing-related failures on IE8 (issue #736)
 
-    'Should respond to changes on an observable value by blurring or focusing the element': function() {
+    it('Should respond to changes on an observable value by blurring or focusing the element', function() {
         var currentState;
         var model = { myVal: ko.observable() }
         testNode.innerHTML = "<input data-bind='hasfocus: myVal' /><input />";
@@ -12,15 +13,15 @@ describe('Binding: Hasfocus', {
         // When the value becomes true, we focus
         model.myVal(true);
         ko.processAllDeferredBindingUpdates();
-        value_of(currentState).should_be(true);
+        expect(currentState).toEqual(true);
 
         // When the value becomes false, we blur
         model.myVal(false);
         ko.processAllDeferredBindingUpdates();
-        value_of(currentState).should_be(false);
-    },
+        expect(currentState).toEqual(false);
+    });
 
-    'Should set an observable value to be true on focus and false on blur': function() {
+    it('Should set an observable value to be true on focus and false on blur', function() {
         var model = { myVal: ko.observable() }
         testNode.innerHTML = "<input data-bind='hasfocus: myVal' /><input />";
         ko.applyBindings(model, testNode);
@@ -30,26 +31,62 @@ describe('Binding: Hasfocus', {
 
         testNode.childNodes[0].focus();
         ko.utils.triggerEvent(testNode.childNodes[0], "focusin");
-        value_of(model.myVal()).should_be(true);
+        ko.processAllDeferredUpdates();
+        expect(model.myVal()).toEqual(true);
 
         // Move the focus elsewhere
         testNode.childNodes[1].focus();
         ko.utils.triggerEvent(testNode.childNodes[0], "focusout");
-        value_of(model.myVal()).should_be(false);
-    },
+        ko.processAllDeferredUpdates();
+        expect(model.myVal()).toEqual(false);
 
-    'Should set a non-observable value to be true on focus and false on blur': function() {
+        // If the model value becomes true after a blur, we re-focus the element
+        // (Represents issue #672, where this wasn't working)
+        var didFocusExpectedElement = false;
+        ko.utils.registerEventHandler(testNode.childNodes[0], "focusin", function() { didFocusExpectedElement = true });
+        model.myVal(true);
+        ko.processAllDeferredBindingUpdates();
+        expect(didFocusExpectedElement).toEqual(true);
+    });
+
+    it('Should set a non-observable value to be true on focus and false on blur', function() {
         var model = { myVal: null }
         testNode.innerHTML = "<input data-bind='hasfocus: myVal' /><input />";
         ko.applyBindings(model, testNode);
 
         testNode.childNodes[0].focus();
         ko.utils.triggerEvent(testNode.childNodes[0], "focusin");
-        value_of(model.myVal).should_be(true);
+        expect(model.myVal).toEqual(true);
 
         // Move the focus elsewhere
         testNode.childNodes[1].focus();
         ko.utils.triggerEvent(testNode.childNodes[0], "focusout");
-        value_of(model.myVal).should_be(false);
-    }
+        expect(model.myVal).toEqual(false);
+    });
+
+    xit('Should be aliased as hasFocus as well as hasfocus', function() {
+        expect(ko.bindingHandlers.hasFocus).toEqual(ko.bindingHandlers.hasfocus);
+    });
+
+    it('Should not unnecessarily focus or blur an element that is already focused/blurred', function() {
+        // This is the closest we can get to representing issue #698 as a spec
+        var model = { isFocused: ko.observable({}) };
+        testNode.innerHTML = "<input data-bind='hasfocus: isFocused' />";
+        ko.applyBindings(model, testNode);
+
+        // The elem is already focused, so changing the model value to a different truthy value
+        // shouldn't cause any additional focus events
+        var didFocusAgain = false;
+        ko.utils.registerEventHandler(testNode.childNodes[0], "focusin", function() { didFocusAgain = true });
+        model.isFocused.valueHasMutated();
+        expect(didFocusAgain).toEqual(false);
+
+        // Similarly, when the elem is already blurred, changing the model value to a different
+        // falsey value shouldn't cause any additional blur events
+        model.isFocused(false);
+        var didBlurAgain = false;
+        ko.utils.registerEventHandler(testNode.childNodes[0], "focusout", function() { didBlurAgain = true });
+        model.isFocused(null);
+        expect(didBlurAgain).toEqual(false);
+    });
 });

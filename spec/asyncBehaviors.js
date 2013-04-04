@@ -1,126 +1,131 @@
-module("Throttled observables");
+describe("Throttled observables", function() {
+    beforeEach(function() { waits(1); }); // Workaround for spurious timing-related failures on IE8 (issue #736)
 
-asyncTest("Should notify subscribers asynchronously after writes stop for the specified timeout duration", function() {
-	var observable = ko.observable('A').extend({ throttle: 50 });
-	var notifiedValues = []
-	observable.subscribe(function(value) {
-		notifiedValues.push(value);
-	});
+    it("Should notify subscribers asynchronously after writes stop for the specified timeout duration", function() {
+        var observable = ko.observable('A').extend({ throttle: 100 });
+        var notifiedValues = [];
+        observable.subscribe(function(value) {
+            notifiedValues.push(value);
+        });
 
-	// Mutate a few times
-	start();
-	observable('B');
-	observable('C');
-	observable('D');
-	equal(notifiedValues.length, 0, "Should not notify synchronously");
+        runs(function() {
+            // Mutate a few times
+            observable('B');
+            observable('C');
+            observable('D');
+            expect(notifiedValues.length).toEqual(0); // Should not notify synchronously
+        });
 
-	// Wait
-	stop();
-	setTimeout(function() {
-		// Mutate more
-		start();
-		observable('E');
-		observable('F');
-		equal(notifiedValues.length, 0, "Should not notify until end of throttle timeout");
+        // Wait
+        waits(10);
+        runs(function() {
+            // Mutate more
+            observable('E');
+            observable('F');
+            expect(notifiedValues.length).toEqual(0); // Should not notify until end of throttle timeout
+        });
 
-		// Wait until after timeout
-		stop();
-		setTimeout(function() {
-			start();
-			equal(notifiedValues.length, 1);
-			equal(notifiedValues[0], "F");
-		}, 60);
-	}, 20);
+        // Wait until after timeout
+        waitsFor(function() {
+            return notifiedValues.length > 0;
+        }, 150);
+        runs(function() {
+            expect(notifiedValues.length).toEqual(1);
+            expect(notifiedValues[0]).toEqual("F");
+        });
+    });
 });
 
-// ---------
+describe("Throttled dependent observables", function() {
+    beforeEach(function() { waits(1); }); // Workaround for spurious timing-related failures on IE8 (issue #736)
 
-module("Throttled dependent observables");
+    it("Should notify subscribers asynchronously after dependencies stop updating for the specified timeout duration", function() {
+        var underlying = ko.observable(), lastUpdateValue;
+        var asyncDepObs = ko.dependentObservable(function() {
+            return lastUpdateValue = underlying();
+        }).extend({ throttle: 100 });
+        var notifiedValues = [];
+        asyncDepObs.subscribe(function(value) {
+            notifiedValues.push(value);
+        });
+        var computedNotifiedValues = [];
+        var secondComputed = ko.computed(function() {
+            var value = asyncDepObs();
+            if (value)
+                computedNotifiedValues.push(value);
+                return value;
+        });
 
-asyncTest("Should notify subscribers asynchronously after dependencies stop updating for the specified timeout duration", function() {
-	var underlying = ko.observable(), lastUpdateValue;
-	var asyncDepObs = ko.dependentObservable(function() {
-		return lastUpdateValue = underlying();
-	}).extend({ throttle: 100 });
-	var notifiedValues = [];
-	asyncDepObs.subscribe(function(value) {
-		notifiedValues.push(value);
-	});
-	var computedNotifiedValues = [];
-    var secondComputed = ko.computed(function() {
-        var value = asyncDepObs();
-        if (value)
-		  computedNotifiedValues.push(value);
-        return value;
+
+        // Check initial state
+        expect(lastUpdateValue).toBeUndefined();
+        runs(function() {
+            // Mutate
+            underlying('New value');
+            expect(lastUpdateValue).toBeUndefined(); // Should not update synchronously
+            expect(notifiedValues.length).toEqual(0);
+        	expect(computedNotifiedValues.length).toEqual(0);
+        });
+
+        // Still shouldn't have evaluated
+        waits(10);
+        runs(function() {
+            expect(lastUpdateValue).toBeUndefined(); // Should not update until throttle timeout
+            expect(notifiedValues.length).toEqual(0);
+        	expect(computedNotifiedValues.length).toEqual(0);
+        });
+
+        // Now wait for throttle timeout
+        waitsFor(function() {
+            return notifiedValues.length > 0;
+        }, 150);
+        runs(function() {
+            expect(lastUpdateValue).toEqual('New value');
+            expect(notifiedValues.length).toEqual(1);
+            expect(notifiedValues[0]).toEqual('New value');
+        	expect(computedNotifiedValues.length).toEqual(1);
+        	expect(computedNotifiedValues[0]).toEqual('New value');
+        });
     });
 
-	// Check initial state
-	start();
-	equal(asyncDepObs(), undefined);
+    it("Should run evaluator only once when dependencies stop updating for the specified timeout duration", function() {
+        var evaluationCount = 0;
+        var someDependency = ko.observable();
+        var asyncDepObs = ko.dependentObservable(function() {
+            evaluationCount++;
+            return someDependency();
+        }).extend({ throttle: 100 });
 
-	// Mutate
-	underlying('New value');
-	equal(lastUpdateValue, undefined, 'Should not update synchronously');
-	equal(notifiedValues.length, 0);
-	equal(computedNotifiedValues.length, 0);
-	stop();
+        runs(function() {
+            // Mutate a few times synchronously
+            expect(evaluationCount).toEqual(1); // Evaluates synchronously when first created, like all dependent observables
+            someDependency("A");
+            someDependency("B");
+            someDependency("C");
+            expect(evaluationCount).toEqual(1); // Should not re-evaluate synchronously when dependencies update
+        });
 
-	// Wait
-	setTimeout(function() {
-		// After 50ms, still shouldn't have evaluated
-		start();
-		equal(lastUpdateValue, undefined, 'Should not update until throttle timeout');
-		equal(notifiedValues.length, 0);
-    	equal(computedNotifiedValues.length, 0);
-		stop();
+        // Also mutate async
+        waits(10);
+        runs(function() {
+            someDependency("D");
+            expect(evaluationCount).toEqual(1);
+        });
 
-		// Wait again
-		setTimeout(function() {
-			start();
-			equal(lastUpdateValue, 'New value');
-			equal(notifiedValues.length, 1);
-			equal(notifiedValues[0], 'New value');
-        	equal(computedNotifiedValues.length, 1);
-			equal(computedNotifiedValues[0], 'New value');
-		}, 60);
-	}, 50);
+        // Now wait for throttle timeout
+        waitsFor(function() {
+            return evaluationCount > 1;
+        }, 150);
+        runs(function() {
+            expect(evaluationCount).toEqual(2); // Finally, it's evaluated
+            expect(asyncDepObs()).toEqual("D");
+        });
+    });
 });
 
-asyncTest("Should run evaluator only once when dependencies stop updating for the specified timeout duration", function() {
-	var evaluationCount = 0;
-	var someDependency = ko.observable();
-	var asyncDepObs = ko.dependentObservable(function() {
-		evaluationCount++;
-		return someDependency();
-	}).extend({ throttle: 100 });
-
-	// Mutate a few times synchronously
-	start();
-	equal(evaluationCount, 1); // Evaluates synchronously when first created, like all dependent observables
-	someDependency("A");
-	someDependency("B");
-	someDependency("C");
-	equal(evaluationCount, 1, "Should not re-evaluate synchronously when dependencies update");
-
-	// Also mutate async
-	stop();
-	setTimeout(function() {
-		start();
-		someDependency("D");
-		equal(evaluationCount, 1);
-
-		// Now wait for throttle timeout
-		stop();
-		setTimeout(function() {
-			start();
-			equal(evaluationCount, 2); // Finally, it's evaluated
-			equal(asyncDepObs(), "D");
-		}, 110);
-	}, 10);
-});
 
 // ---------
-
+/*
 module("Asynchronous bindings", {
     setup: function() {
         this.testNode = document.createElement("div");
@@ -241,3 +246,4 @@ asyncTest("Should update 'foreach' items asynchronously", function() {
         equal(updatePassedValues[1], "C");
     }, 10);
 });
+*/
