@@ -31,7 +31,7 @@ describe('Binding: Value', function() {
         ko.applyBindings({ someProp: myobservable }, testNode);
         expect(testNode.childNodes[0].value).toEqual("123");
         myobservable(456);
-        ko.processAllDeferredUpdates();
+        ko.processAllDeferredBindingUpdates();
         expect(testNode.childNodes[0].value).toEqual("456");
     });
 
@@ -224,10 +224,10 @@ describe('Binding: Value', function() {
             ko.utils.triggerEvent(testNode.childNodes[0], "propertychange");
             ko.utils.triggerEvent(testNode.childNodes[0], "change");
             expect(myobservable()).toEqual("some user-entered value");
-            ko.processAllDeferredBindingUpdates();
+            ko.processAllDeferredUpdates();
             expect(numUpdates).toEqual(1);
             ko.utils.triggerEvent(testNode.childNodes[0], "blur");
-            ko.processAllDeferredBindingUpdates();
+            ko.processAllDeferredUpdates();
             expect(numUpdates).toEqual(1);
 
             // Simulate:
@@ -239,10 +239,10 @@ describe('Binding: Value', function() {
             ko.utils.triggerEvent(testNode.childNodes[0], "propertychange");
             ko.utils.triggerEvent(testNode.childNodes[0], "blur");
             expect(myobservable()).toEqual("different user-entered value");
-            ko.processAllDeferredBindingUpdates();
+            ko.processAllDeferredUpdates();
             expect(numUpdates).toEqual(2);
             ko.utils.triggerEvent(testNode.childNodes[0], "change");
-            ko.processAllDeferredBindingUpdates();
+            ko.processAllDeferredUpdates();
             expect(numUpdates).toEqual(3);
         }
     });

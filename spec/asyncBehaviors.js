@@ -17,7 +17,6 @@ describe("Throttled observables", function() {
         });
 
         // Wait
-        waits(10);
         runs(function() {
             // Mutate more
             observable('E');

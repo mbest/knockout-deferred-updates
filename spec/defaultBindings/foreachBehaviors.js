@@ -173,7 +173,6 @@ describe('Binding: Foreach', function() {
         expect(afterAddCallbackData[0].elem).toEqual(testNode.childNodes[0].childNodes[1]);
         expect(afterAddCallbackData[0].index).toEqual(1);
         expect(afterAddCallbackData[0].value.childprop).toEqual("added child");
-        ko.processAllDeferredBindingUpdates();
         expect(afterAddCallbackData[0].currentParentClone).toContainHtml('<span data-bind="text: childprop">first child</span><span data-bind="text: childprop">added child</span>');
 
         // Try removing
