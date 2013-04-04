@@ -1,7 +1,7 @@
 // Deferred Updates plugin for Knockout http://knockoutjs.com/
 // (c) Michael Best, Steven Sanderson
 // License: MIT (http://www.opensource.org/licenses/mit-license.php)
-// Version 2.0.0
+// Version 2.0.1
 
 (function(factory) {
     if (typeof require === 'function' && typeof exports === 'object' && typeof module === 'object') {
@@ -22,27 +22,27 @@
  */
 ko.tasks = (function() {
     var setImmediate = !!window.setImmediate ? 'setImmediate' : 'setTimeout';    // Use setImmediate function if available; otherwise use setTimeout
-    var evaluatorHandler, evaluatorsArray = [], evaluatorsExtraArray = [], taskStack = [], indexProcessing;
+    var evaluatorHandler, evaluatorsArray = [], evaluatorsExtraArray = [], taskStack = [], indexNextToProcess, indexCurrentStart = 0;
 
     function pushTaskState() {
-        taskStack.push(evaluatorsArray.length);
+        taskStack.push(indexCurrentStart = evaluatorsArray.length);
     }
 
     function popTaskState() {
         var originalLength = taskStack.pop();
+        indexCurrentStart = taskStack.length ? taskStack[taskStack.length-1] : 0;
         if (evaluatorsArray.length > originalLength)
             processEvaluators(originalLength);
     }
 
-    function currentStart() {
-        return taskStack.length ? taskStack[taskStack.length-1] : 0;
-    }
-
     function processEvaluators(start) {
+        start = start || 0;
+        if (start < indexNextToProcess) {   // don't allow processEvaluators to be called again for an earlier set
+            return;
+        }
         try {
-            for (var i = 0, evObj; evObj = evaluatorsExtraArray[i]; i++) {
-                indexProcessing = i;
-                // Check/set a flag for the evaluator so we don't call it again if processEvaluators is called recursively
+            for (var i = start, evObj; evObj = evaluatorsExtraArray[i]; i++) {
+                indexNextToProcess = i + 1;
                 if (!evObj.processed) {
                     evObj.processed = true;
                     (0,evaluatorsArray[i]).apply(evObj.object, evObj.args || []);
@@ -59,7 +59,7 @@ ko.tasks = (function() {
                 evaluatorsExtraArray = [];
                 evaluatorHandler = undefined;
             }
-            indexProcessing = undefined;
+            indexNextToProcess = undefined;
         }
     }
 
@@ -69,8 +69,8 @@ ko.tasks = (function() {
     }
 
     function isEvaluatorDuplicate(evaluator, extras) {
-        for (var i = indexProcessing || currentStart(), j = evaluatorsArray.length; i < j; i++)
-            if (evaluatorsArray[i] === evaluator && !evaluatorsExtraArray[i].processed) {
+        for (var i = indexNextToProcess || indexCurrentStart, j = evaluatorsArray.length; i < j; i++)
+            if (evaluatorsArray[i] === evaluator) {
                 evaluatorsExtraArray[i] = extras || {};
                 return true;
             }
