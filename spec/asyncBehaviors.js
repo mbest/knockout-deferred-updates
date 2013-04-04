@@ -124,125 +124,127 @@ describe("Throttled dependent observables", function() {
 
 
 // ---------
-/*
-module("Asynchronous bindings", {
-    setup: function() {
-        this.testNode = document.createElement("div");
-        this.testNode.id = "testNode";
-        document.body.appendChild(this.testNode);
-    },
-    teardown: function() {
-        document.body.removeChild(this.testNode);
-    }
+
+describe("Asynchronous bindings", function() {
+    var testNode;
+
+    beforeEach(function() {
+        testNode = document.createElement("div");
+        testNode.id = "testNode";
+        document.body.appendChild(testNode);
+        waits(1);   // Workaround for spurious timing-related failures on IE8 (issue #736)
+    });
+    afterEach(function() {
+        document.body.removeChild(testNode);
+    });
+
+    it("Should update bindings asynchronously", function() {
+        var observable = new ko.observable();
+        var initPassedValues = [], updatePassedValues = [];
+        ko.bindingHandlers.test = {
+            init: function (element, valueAccessor) { initPassedValues.push(valueAccessor()()); },
+            update: function (element, valueAccessor) { updatePassedValues.push(valueAccessor()()); }
+        };
+        testNode.innerHTML = "<div data-bind='test: myObservable'></div>";
+
+        ko.applyBindings({ myObservable: observable }, testNode);
+
+        runs(function () {
+            expect(initPassedValues.length).toEqual(1);
+            expect(updatePassedValues.length).toEqual(1);
+            expect(initPassedValues[0]).toEqual(undefined);
+            expect(updatePassedValues[0]).toEqual(undefined);
+
+            // mutate; update should not be called yet
+            observable("A");
+            expect(updatePassedValues.length).toEqual(1);
+
+            // mutate; update should not be called yet
+            observable("B");
+            expect(updatePassedValues.length).toEqual(1);
+        });
+
+        waits(10);
+        runs(function() {
+            // only the latest value should be used
+            expect(initPassedValues.length).toEqual(1);
+            expect(updatePassedValues.length).toEqual(2);
+            expect(updatePassedValues[1]).toEqual("B");
+        });
+    });
+
+    it("Should update template asynchronously", function() {
+        var observable = new ko.observable();
+        var initPassedValues = [], updatePassedValues = [];
+        ko.bindingHandlers.test = {
+            init: function (element, valueAccessor) { initPassedValues.push(valueAccessor()); },
+            update: function (element, valueAccessor) { updatePassedValues.push(valueAccessor()); }
+        };
+        testNode.innerHTML = "<div data-bind='template: {data: myObservable}'><div data-bind='test: $data'></div></div>";
+
+        ko.applyBindings({ myObservable: observable }, testNode);
+
+        runs(function () {
+            expect(initPassedValues.length).toEqual(1);
+            expect(updatePassedValues.length).toEqual(1);
+            expect(initPassedValues[0]).toEqual(undefined);
+            expect(updatePassedValues[0]).toEqual(undefined);
+
+            // mutate; template should not re-evaluated yet
+            observable("A");
+            expect(initPassedValues.length).toEqual(1);
+            expect(updatePassedValues.length).toEqual(1);
+
+            // mutate again; template should not re-evaluated yet
+            observable("B");
+            expect(initPassedValues.length).toEqual(1);
+            expect(updatePassedValues.length).toEqual(1);
+        });
+
+        waits(10);
+        runs(function() {
+            // only the latest value should be used
+            expect(initPassedValues.length).toEqual(2);
+            expect(updatePassedValues.length).toEqual(2);
+            expect(updatePassedValues[1]).toEqual("B");
+        });
+    });
+
+    it("Should update 'foreach' items asynchronously", function() {
+        var observable = new ko.observableArray(["A"]);
+        var initPassedValues = [], updatePassedValues = [];
+        ko.bindingHandlers.test = {
+            init: function (element, valueAccessor) { initPassedValues.push(valueAccessor()); },
+            update: function (element, valueAccessor) { updatePassedValues.push(valueAccessor()); }
+        };
+        testNode.innerHTML = "<div data-bind='foreach: {data: myObservables}'><div data-bind='test: $data'></div></div>";
+
+        ko.applyBindings({ myObservables: observable }, testNode);
+
+        runs(function() {
+            expect(initPassedValues.length).toEqual(1);
+            expect(updatePassedValues.length).toEqual(1);
+            expect(initPassedValues[0]).toEqual("A");
+            expect(updatePassedValues[0]).toEqual("A");
+
+            // mutate; template should not re-evaluated yet
+            observable(["B"]);
+            expect(initPassedValues.length).toEqual(1);
+            expect(updatePassedValues.length).toEqual(1);
+
+            // mutate again; template should not re-evaluated yet
+            observable(["C"]);
+            expect(initPassedValues.length).toEqual(1);
+            expect(updatePassedValues.length).toEqual(1);
+        });
+
+        waits(10);
+        runs(function() {
+            // only the latest value should be used
+            expect(initPassedValues.length).toEqual(2);
+            expect(updatePassedValues.length).toEqual(2);
+            expect(initPassedValues[1]).toEqual("C");
+            expect(updatePassedValues[1]).toEqual("C");
+        });
+    });
 });
-
-asyncTest("Should update bindings asynchronously", function() {
-    var observable = new ko.observable();
-    var initPassedValues = [], updatePassedValues = [];
-    ko.bindingHandlers.test = {
-        init: function (element, valueAccessor) { initPassedValues.push(valueAccessor()()); },
-        update: function (element, valueAccessor) { updatePassedValues.push(valueAccessor()()); }
-    };
-    this.testNode.innerHTML = "<div data-bind='test: myObservable'></div>";
-
-    ko.applyBindings({ myObservable: observable }, this.testNode);
-
-    start();
-    equal(initPassedValues.length, 1);
-    equal(updatePassedValues.length, 1);
-    equal(initPassedValues[0], undefined);
-    equal(updatePassedValues[0], undefined);
-
-    // mutate; update should not be called yet
-    observable("A");
-    equal(updatePassedValues.length, 1);
-
-    // mutate; update should not be called yet
-    observable("B");
-    equal(updatePassedValues.length, 1);
-    stop();
-
-    setTimeout(function() {
-        start();
-        // only the latest value should be used
-        equal(initPassedValues.length, 1);
-        equal(updatePassedValues.length, 2);
-        equal(updatePassedValues[1], "B");
-    }, 10);
-});
-
-asyncTest("Should update template asynchronously", function() {
-    var observable = new ko.observable();
-    var initPassedValues = [], updatePassedValues = [];
-    ko.bindingHandlers.test = {
-        init: function (element, valueAccessor) { initPassedValues.push(valueAccessor()); },
-        update: function (element, valueAccessor) { updatePassedValues.push(valueAccessor()); }
-    };
-    this.testNode.innerHTML = "<div data-bind='template: {data: myObservable}'><div data-bind='test: $data'></div></div>";
-
-    ko.applyBindings({ myObservable: observable }, this.testNode);
-
-    start();
-    equal(initPassedValues.length, 1);
-    equal(updatePassedValues.length, 1);
-    equal(initPassedValues[0], undefined);
-    equal(updatePassedValues[0], undefined);
-
-    // mutate; template should not re-evaluated yet
-    observable("A");
-    equal(initPassedValues.length, 1);
-    equal(updatePassedValues.length, 1);
-
-    // mutate again; template should not re-evaluated yet
-    observable("B");
-    equal(initPassedValues.length, 1);
-    equal(updatePassedValues.length, 1);
-    stop();
-
-    setTimeout(function() {
-        start();
-        // only the latest value should be used
-        equal(initPassedValues.length, 2);
-        equal(updatePassedValues.length, 2);
-        equal(updatePassedValues[1], "B");
-    }, 10);
-});
-
-asyncTest("Should update 'foreach' items asynchronously", function() {
-    var observable = new ko.observableArray(["A"]);
-    var initPassedValues = [], updatePassedValues = [];
-    ko.bindingHandlers.test = {
-        init: function (element, valueAccessor) { initPassedValues.push(valueAccessor()); },
-        update: function (element, valueAccessor) { updatePassedValues.push(valueAccessor()); }
-    };
-    this.testNode.innerHTML = "<div data-bind='foreach: {data: myObservables}'><div data-bind='test: $data'></div></div>";
-
-    ko.applyBindings({ myObservables: observable }, this.testNode);
-
-    start();
-    equal(initPassedValues.length, 1);
-    equal(updatePassedValues.length, 1);
-    equal(initPassedValues[0], "A");
-    equal(updatePassedValues[0], "A");
-
-    // mutate; template should not re-evaluated yet
-    observable(["B"]);
-    equal(initPassedValues.length, 1);
-    equal(updatePassedValues.length, 1);
-
-    // mutate again; template should not re-evaluated yet
-    observable(["C"]);
-    equal(initPassedValues.length, 1);
-    equal(updatePassedValues.length, 1);
-    stop();
-
-    setTimeout(function() {
-        start();
-        // only the latest value should be used
-        equal(initPassedValues.length, 2);
-        equal(updatePassedValues.length, 2);
-        equal(initPassedValues[1], "C");
-        equal(updatePassedValues[1], "C");
-    }, 10);
-});
-*/
