@@ -14,7 +14,7 @@
         // [3] No module loader (plain <script> tag) - ko is directly in global namespace
         factory(ko);
     }
-})
+}
 (function(ko, undefined) {
 
 /*
@@ -534,4 +534,6 @@ ko.extenders.throttle = function(target, timeout) {
     }
 };
 
-});
+return ko;
+
+}));
