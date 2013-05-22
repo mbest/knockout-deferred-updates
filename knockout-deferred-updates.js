@@ -1,7 +1,7 @@
 // Deferred Updates plugin for Knockout http://knockoutjs.com/
 // (c) Michael Best, Steven Sanderson
 // License: MIT (http://www.opensource.org/licenses/mit-license.php)
-// Version 2.0.1
+// Version 2.0.2
 
 (function(factory) {
     if (typeof require === 'function' && typeof exports === 'object' && typeof module === 'object') {
@@ -151,6 +151,7 @@ function findSubObjectWithProperty(obj, prop) {
 
 // Find ko.dependencyDetection and its methods
 var depDet = findSubObjectWithProperty(ko, 'end'),
+    depDetIgnoreName = findNameMethodSignatureContaining(depDet, '.apply('),
     depDetBeginName = findNameMethodSignatureContaining(depDet, '.push({'),
     depDetRegisterName = findNameMethodSignatureContaining(depDet, '.length');
 
@@ -195,12 +196,14 @@ subscription = null;
 /*
  * Add ko.ignoreDependencies
  */
-ko.ignoreDependencies = function(callback, object, args) {
-    try {
-        depDet[depDetBeginName](function() {});
-        return callback.apply(object, args || []);
-    } finally {
-        depDet.end();
+if (!ko.ignoreDependencies) {
+    ko.ignoreDependencies = depDetIgnoreName ? depDet[depDetIgnoreName] : function(callback, object, args) {
+        try {
+            depDet[depDetBeginName](function() {});
+            return callback.apply(object, args || []);
+        } finally {
+            depDet.end();
+        }
     }
 }
 
