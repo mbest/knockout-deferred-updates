@@ -1,7 +1,7 @@
 // Deferred Updates plugin for Knockout http://knockoutjs.com/
 // (c) Michael Best, Steven Sanderson
 // License: MIT (http://www.opensource.org/licenses/mit-license.php)
-// Version 2.0.2
+// Version 2.0.3
 
 (function(factory) {
     if (typeof require === 'function' && typeof exports === 'object' && typeof module === 'object') {
@@ -379,13 +379,17 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
             _possiblyNeedsEvaluation = _needsEvaluation = false;
 
             dependentObservable.notifySubscribers(_latestValue, 'beforeChange');
+
             _latestValue = newValue;
+            dependentObservable._latestValue = _latestValue;
+            dependentObservable.notifySubscribers(_latestValue);
         } finally {
             depDet.end();
+            _dontEvaluate = false;
+            // For compatibility with Knockout 2.3.0, mark computed as evaluated even if the evaluator threw an exception
+            _possiblyNeedsEvaluation = _needsEvaluation = false;
         }
 
-        dependentObservable.notifySubscribers(_latestValue);
-        _dontEvaluate = false;
         return true;
     }
 
@@ -393,7 +397,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         _dontEvaluate = true;
         try {
             depDet[depDetBeginName](addDependency);
-            _latestValue = readFunction.call(evaluatorFunctionTarget);
+            dependentObservable._latestValue = _latestValue = readFunction.call(evaluatorFunctionTarget);
         } finally {
             depDet.end();
         }
@@ -465,7 +469,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     var disposeWhen = options[disposeWhenName] || options.disposeWhen || function() { return false; };
     if (disposeWhenNodeIsRemoved && isActive()) {
         dispose = function() {
-            ko.utils.domNodeDisposal.removeDisposeCallback(disposeWhenNodeIsRemoved, arguments.callee);
+            ko.utils.domNodeDisposal.removeDisposeCallback(disposeWhenNodeIsRemoved, dispose);
             disposeAllSubscriptionsToDependencies();
         };
         ko.utils.domNodeDisposal.addDisposeCallback(disposeWhenNodeIsRemoved, dispose);
