@@ -1,13 +1,13 @@
 // Deferred Updates plugin for Knockout http://knockoutjs.com/
 // (c) Michael Best, Steven Sanderson
 // License: MIT (http://www.opensource.org/licenses/mit-license.php)
-// Version 2.0.3
+// Version 2.1.0
 
 (function(factory) {
     if (typeof require === 'function' && typeof exports === 'object' && typeof module === 'object') {
         // [1] CommonJS/Node.js
-        factory(exports, require('knockout'));
-    } else if (typeof define === 'function' && define['amd']) {
+        factory(require('knockout'));
+    } else if (typeof define === 'function' && define.amd) {
         // [2] AMD anonymous module
         define(['knockout'], factory);
     } else {
@@ -17,11 +17,13 @@
 }
 (function(ko, undefined) {
 
+var g = typeof global === "object" && global ? global : window;
+
 /*
  * Task manager for deferred tasks
  */
 ko.tasks = (function() {
-    var setImmediate = !!window.setImmediate ? 'setImmediate' : 'setTimeout';    // Use setImmediate function if available; otherwise use setTimeout
+    var setImmediate = !!g.setImmediate ? 'setImmediate' : 'setTimeout';    // Use setImmediate function if available; otherwise use setTimeout
     var evaluatorHandler, evaluatorsArray = [], evaluatorsExtraArray = [], taskStack = [], indexNextToProcess, indexCurrentStart = 0;
 
     function pushTaskState() {
@@ -95,7 +97,7 @@ ko.tasks = (function() {
             evaluatorsArray.push(evaluator);
             evaluatorsExtraArray.push(extras || {});
             if (!taskStack.length && !evaluatorHandler) {
-                evaluatorHandler = window[setImmediate](processEvaluatorsCallback);
+                evaluatorHandler = g[setImmediate](processEvaluatorsCallback);
             }
             return true;
         },
