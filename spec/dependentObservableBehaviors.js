@@ -474,4 +474,25 @@ describe('Dependent Observable', function() {
         isActive(true);
         expect(computed()).toEqual("C");
     });
+
+    it('Should expose a "notify" extender that can configure a computed to notify only when its value is changed', function() {
+        var notifiedValues = [];
+        var observable = new ko.observable(1);
+        var computed = new ko.computed(function () { return observable(); });
+        computed.subscribe(function (value) { notifiedValues.push(value); });
+
+        ko.processAllDeferredUpdates();
+        expect(notifiedValues).toEqual([]);
+
+        // Trigger update without changing value; the computed will notify the change (default behavior)
+        observable.valueHasMutated();
+        ko.processAllDeferredUpdates();
+        expect(notifiedValues).toEqual([1]);
+
+        // Set the computed to notify only if the value changes
+        computed.extend({ notify: 'notalways' });    // presently the value doesn't matter except it can't be 'always'
+        observable.valueHasMutated();
+        ko.processAllDeferredUpdates();
+        expect(notifiedValues).toEqual([1]); // no new notification
+    });
 })

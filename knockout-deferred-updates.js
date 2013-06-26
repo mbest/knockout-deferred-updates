@@ -380,11 +380,13 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
 
             _possiblyNeedsEvaluation = _needsEvaluation = false;
 
-            dependentObservable.notifySubscribers(_latestValue, 'beforeChange');
+            if (!dependentObservable.equalityComparer || !dependentObservable.equalityComparer(_latestValue, newValue)) {
+                dependentObservable.notifySubscribers(_latestValue, 'beforeChange');
 
-            _latestValue = newValue;
-            dependentObservable._latestValue = _latestValue;
-            dependentObservable.notifySubscribers(_latestValue);
+                _latestValue = newValue;
+                dependentObservable._latestValue = _latestValue;
+                dependentObservable.notifySubscribers(_latestValue);
+            }
         } finally {
             depDet.end();
             _dontEvaluate = false;
