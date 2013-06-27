@@ -94,10 +94,10 @@ ko.tasks = (function() {
         return processTasks(0);
     }
 
-    function isEvaluatorDuplicate(evaluator, options) {
+    function clearDuplicate(evaluator) {
         for (var i = indexNextToProcess || indexContextStart, j = evaluators.length; i < j; i++)
-            if (evaluators[i] === evaluator) {
-                taskOptions[i] = options || {};
+            if (evaluators[i] === evaluator && !taskOptions[i].processed) {
+                taskOptions[i].processed = true;
                 return true;
             }
         return false;
@@ -114,17 +114,15 @@ ko.tasks = (function() {
         },
 
         processDelayed: function(evaluator, distinct, options) {
-            if ((distinct || distinct === undefined) && isEvaluatorDuplicate(evaluator, options)) {
-                // Don't add evaluator if distinct is set (or missing) and evaluator is already in list
-                return false;
-            }
+            var foundDup = (distinct || distinct === undefined) && clearDuplicate(evaluator);
+
             evaluators.push(evaluator);
             taskOptions.push(options || {});
 
             if (!contextStack.length && !evaluatorHandler) {
                 evaluatorHandler = g[setImmediate](processAllTasks);
             }
-            return true;
+            return !foundDup;
         },
 
         makeProcessedCallback: function(evaluator) {
@@ -237,7 +235,7 @@ if (!ko.ignoreDependencies) {
 /*
  * Replace ko.subscribable.fn.subscribe with one where change events are deferred
  */
-subFnObj.oldSubscribe = subFnObj[subFnName];    // Save old subscribe function
+var oldSubscribe = subFnObj[subFnName];    // Save old subscribe function
 subFnObj[subFnName] = function (callback, callbackTarget, event, deferUpdates, computed) {
     event = event || 'change';
     var newCallback;
@@ -264,12 +262,38 @@ subFnObj[subFnName] = function (callback, callbackTarget, event, deferUpdates, c
             this.dependents.push(computed);
         }
     }
-    var subscription = this.oldSubscribe(newCallback, null, event);
+    var subscription = oldSubscribe.call(this, newCallback, null, event);
     subscription.target = this;
     subscription.event = event;
     subscription.dependent = computed;
     return subscription;
 }
+/*
+ * Replace ko.subscribable.fn.notifySubscribers with one where dirty and change notifications are deferred
+ */
+var oldnotifySubscribers = ko.subscribable.fn.notifySubscribers, notifyStack;
+ko.subscribable.fn.notifySubscribers = function (valueToNotify, event) {
+    if (event === 'change' || event === 'dirty' || event === undefined) {
+        if (!notifyStack) {
+            notifyStack = [];
+            oldnotifySubscribers.call(this, valueToNotify, event);
+            if (notifyStack.length) {
+                for (var i = 0, n; n = notifyStack[i]; i++) {
+                    oldnotifySubscribers.call(n.object, n.value, n.event);
+                }
+            }
+            notifyStack = null;
+        } else {
+            notifyStack.push({
+                object: this,
+                value: valueToNotify,
+                event: event
+            });
+        }
+    } else {
+        oldnotifySubscribers.call(this, valueToNotify, event);
+    }
+};
 // Provide a method to return a list of dependents (computed observables that depend on the subscribable)
 subFnObj.getDependents = function() {
     return this.dependents ? this.dependents.slice(0) : [];

@@ -495,4 +495,20 @@ describe('Dependent Observable', function() {
         ko.processAllDeferredUpdates();
         expect(notifiedValues).toEqual([1]); // no new notification
     });
-})
+
+    // Borrowed from haberman/knockout (see knockout/knockout#359)
+    it('Should allow long chains without overflowing the stack', function() {
+        var depth = 5000;
+        var first = ko.observable(0);
+        var last = first;
+        for (var i = 0; i < depth; i++) {
+           (function() {
+               var l = last;
+               last = ko.computed(function() { return l() + 1; })
+           })();
+        }
+        first(1);
+        ko.processAllDeferredUpdates();
+        expect(last()).toEqual(depth+1);
+     });
+});
