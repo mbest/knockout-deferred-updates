@@ -504,11 +504,12 @@ describe('Dependent Observable', function() {
         for (var i = 0; i < depth; i++) {
            (function() {
                var l = last;
-               last = ko.computed(function() { return l() + 1; })
+               last = ko.computed(function() { return l() + 1; });
            })();
         }
+        var all = ko.computed(function() { return last() + first(); });
         first(1);
         ko.processAllDeferredUpdates();
-        expect(last()).toEqual(depth+1);
+        expect(all()).toEqual(depth+2);
      });
 });
