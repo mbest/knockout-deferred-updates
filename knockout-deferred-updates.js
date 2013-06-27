@@ -275,14 +275,17 @@ var oldnotifySubscribers = ko.subscribable.fn.notifySubscribers, notifyStack;
 ko.subscribable.fn.notifySubscribers = function (valueToNotify, event) {
     if (event === 'change' || event === 'dirty' || event === undefined) {
         if (!notifyStack) {
-            notifyStack = [];
-            oldnotifySubscribers.call(this, valueToNotify, event);
-            if (notifyStack.length) {
-                for (var i = 0, n; n = notifyStack[i]; i++) {
-                    oldnotifySubscribers.call(n.object, n.value, n.event);
+            try {
+                notifyStack = [];
+                oldnotifySubscribers.call(this, valueToNotify, event);
+                if (notifyStack.length) {
+                    for (var i = 0, n; n = notifyStack[i]; i++) {
+                        oldnotifySubscribers.call(n.object, n.value, n.event);
+                    }
                 }
+            } finally {
+                notifyStack = null;
             }
-            notifyStack = null;
         } else {
             notifyStack.push({
                 object: this,
@@ -453,8 +456,8 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
             dependentObservable._latestValue = _latestValue = readFunction.call(evaluatorFunctionTarget);
         } finally {
             depDet.end();
+            _needsEvaluation = _dontEvaluate = false;
         }
-        _needsEvaluation = _dontEvaluate = false;
     }
 
     function dependentObservable() {
