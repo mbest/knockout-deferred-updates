@@ -271,23 +271,23 @@ subFnObj[subFnName] = function (callback, callbackTarget, event, deferUpdates, c
 /*
  * Replace ko.subscribable.fn.notifySubscribers with one where dirty and change notifications are deferred
  */
-var oldnotifySubscribers = ko.subscribable.fn.notifySubscribers, notifyStack;
+var oldnotifySubscribers = ko.subscribable.fn.notifySubscribers, notifyQueue;
 ko.subscribable.fn.notifySubscribers = function (valueToNotify, event) {
     if (event === 'change' || event === 'dirty' || event === undefined) {
-        if (!notifyStack) {
+        if (!notifyQueue) {
             try {
-                notifyStack = [];
+                notifyQueue = [];
                 oldnotifySubscribers.call(this, valueToNotify, event);
-                if (notifyStack.length) {
-                    for (var i = 0, n; n = notifyStack[i]; i++) {
+                if (notifyQueue.length) {
+                    for (var i = 0, n; n = notifyQueue[i]; i++) {
                         oldnotifySubscribers.call(n.object, n.value, n.event);
                     }
                 }
             } finally {
-                notifyStack = null;
+                notifyQueue = null;
             }
         } else {
-            notifyStack.push({
+            notifyQueue.push({
                 object: this,
                 value: valueToNotify,
                 event: event
