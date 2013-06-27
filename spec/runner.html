@@ -21,23 +21,15 @@
         <!-- knockout polyfills -->
         <script type="text/javascript" src="lib/innershiv.js"></script>
         <script type="text/javascript" src="lib/json2.js"></script>
+
+        <!-- knockout -->
         <script type="text/javascript" src="lib/knockout-2.2.0.js"></script>
         <script type="text/javascript">ko.processAllDeferredUpdates = ko.processAllDeferredBindingUpdates = function(){}</script>
 	<!--<script type="text/javascript" src="lib/setImmediate.js"></script>-->
         <script type="text/javascript" src="../knockout-deferred-updates.js"></script>
 
-        <!-- knockout -->
-        <script type="text/javascript">
-            // By default, we run the tests against knockout-raw.js, but you can specify an alternative test
-            // subject as a querystring parameter, e.g., runner.html?src=build/output/knockout-latest.js.
-            // This is used by our automated test runners (PhantomJS and Testling CI).
-            (function() {
-                var koFilenameParam = location.href.match(/[?&]src=([^&]+)/);
-                jasmine.addScriptReference("../" + (koFilenameParam ? koFilenameParam[1] : "build/knockout-raw.js"));
-            })();
-        </script>
-
         <!-- specs -->
+        <script type="text/javascript" src="taskBehaviors.js"></script>
         <script type="text/javascript" src="arrayEditDetectionBehaviors.js"></script>
         <script type="text/javascript" src="arrayToDomEditDetectionBehaviors.js"></script>
         <script type="text/javascript" src="asyncBehaviors.js"></script>

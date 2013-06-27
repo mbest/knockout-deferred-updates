@@ -1,7 +1,7 @@
 // Deferred Updates plugin for Knockout http://knockoutjs.com/
 // (c) Michael Best, Steven Sanderson
 // License: MIT (http://www.opensource.org/licenses/mit-license.php)
-// Version 2.1.0
+// Version 2.1.1
 
 (function(factory) {
     if (typeof require === 'function' && typeof exports === 'object' && typeof module === 'object') {
@@ -23,57 +23,81 @@ var g = typeof global === "object" && global ? global : window;
  * Task manager for deferred tasks
  */
 ko.tasks = (function() {
-    var setImmediate = !!g.setImmediate ? 'setImmediate' : 'setTimeout';    // Use setImmediate function if available; otherwise use setTimeout
-    var evaluatorHandler, evaluatorsArray = [], evaluatorsExtraArray = [], taskStack = [], indexNextToProcess, indexCurrentStart = 0;
-
-    function pushTaskState() {
-        taskStack.push(indexCurrentStart = evaluatorsArray.length);
+    // Use setImmediate functions if available; otherwise use setTimeout
+    var setImmediate, clearImmediate;
+    if (g.setImmediate) {
+        setImmediate = 'setImmediate';
+        clearImmediate = 'clearImmediate';
+    } else {
+        setImmediate = 'setTimeout';
+        clearImmediate = 'clearTimeout';
     }
 
-    function popTaskState() {
-        var originalLength = taskStack.pop();
-        indexCurrentStart = taskStack.length ? taskStack[taskStack.length-1] : 0;
-        if (evaluatorsArray.length > originalLength)
-            processEvaluators(originalLength);
+    var evaluatorHandler, evaluators = [], taskOptions = [], contextStack = [], indexNextToProcess, indexContextStart = 0;
+
+    // Begin a new task context. Any tasks that are scheduled during this context will be processed when the context ends
+    function startTaskContext() {
+        // Save the previous context start index in the stack
+        contextStack.push(indexContextStart);
+        // Set the new context start index to the current task length: any newly scheduled tasks are part of the current context
+        indexContextStart = evaluators.length;
     }
 
-    function processEvaluators(start) {
-        start = start || 0;
-        if (start < indexNextToProcess) {   // don't allow processEvaluators to be called again for an earlier set
+    // End the current task context and process any scheduled tasks
+    function endTaskContext() {
+        try {
+            // Process any tasks that were scheduled within this context
+            if (evaluators.length > indexContextStart)
+                processTasks(indexContextStart);
+        } finally {
+            // Move back into the previous context
+            indexContextStart = contextStack.pop() || 0;
+        }
+    }
+
+    function processTasks(start) {
+        if (start < indexNextToProcess) {   // don't allow processTasks to be called again for an earlier set
             return;
         }
+        var countProcessed = 0;
         try {
-            for (var i = start, evObj; evObj = evaluatorsExtraArray[i]; i++) {
+            for (var i = start, options; options = taskOptions[i]; i++) {
                 indexNextToProcess = i + 1;
-                if (!evObj.processed) {
-                    evObj.processed = true;
-                    (0,evaluatorsArray[i]).apply(evObj.object, evObj.args || []);
+                if (!options.processed) {
+                    options.processed = true;
+                    (0,evaluators[i]).apply(options.object, options.args || []);
+                    countProcessed++;
                 }
             }
         } finally {
             if (start) {
                 // Remove only items we've just processed (shorten array to *start* items)
-                evaluatorsArray.splice(start, evaluatorsArray.length);
-                evaluatorsExtraArray.splice(start, evaluatorsExtraArray.length);
+                evaluators.splice(start, evaluators.length);
+                taskOptions.splice(start, taskOptions.length);
             } else {
                 // Clear array and handler to indicate that we're finished
-                evaluatorsArray = [];
-                evaluatorsExtraArray = [];
+                evaluators = [];
+                taskOptions = [];
+                contextStack = [];
+                indexContextStart = 0;
+
+                if (evaluatorHandler)
+                    g[clearImmediate](evaluatorHandler);
                 evaluatorHandler = undefined;
             }
             indexNextToProcess = undefined;
         }
+        return countProcessed++;
     }
 
-    // need to wrap function call because Firefox calls setTimeout callback with a parameter
-    function processEvaluatorsCallback() {
-        processEvaluators();
+    function processAllTasks() {
+        return processTasks(0);
     }
 
-    function isEvaluatorDuplicate(evaluator, extras) {
-        for (var i = indexNextToProcess || indexCurrentStart, j = evaluatorsArray.length; i < j; i++)
-            if (evaluatorsArray[i] === evaluator) {
-                evaluatorsExtraArray[i] = extras || {};
+    function isEvaluatorDuplicate(evaluator, options) {
+        for (var i = indexNextToProcess || indexContextStart, j = evaluators.length; i < j; i++)
+            if (evaluators[i] === evaluator) {
+                taskOptions[i] = options || {};
                 return true;
             }
         return false;
@@ -81,23 +105,24 @@ ko.tasks = (function() {
 
     var tasks = {
         processImmediate: function(evaluator, object, args) {
-            pushTaskState();
+            startTaskContext();
             try {
                 return evaluator.apply(object, args || []);
             } finally {
-                popTaskState();
+                endTaskContext();
             }
         },
 
-        processDelayed: function(evaluator, distinct, extras) {
-            if ((distinct || distinct === undefined) && isEvaluatorDuplicate(evaluator, extras)) {
+        processDelayed: function(evaluator, distinct, options) {
+            if ((distinct || distinct === undefined) && isEvaluatorDuplicate(evaluator, options)) {
                 // Don't add evaluator if distinct is set (or missing) and evaluator is already in list
                 return false;
             }
-            evaluatorsArray.push(evaluator);
-            evaluatorsExtraArray.push(extras || {});
-            if (!taskStack.length && !evaluatorHandler) {
-                evaluatorHandler = g[setImmediate](processEvaluatorsCallback);
+            evaluators.push(evaluator);
+            taskOptions.push(options || {});
+
+            if (!contextStack.length && !evaluatorHandler) {
+                evaluatorHandler = g[setImmediate](processAllTasks);
             }
             return true;
         },
@@ -111,15 +136,15 @@ ko.tasks = (function() {
 
     ko.processDeferredBindingUpdatesForNode =       // deprecated (included for compatibility)
     ko.processAllDeferredBindingUpdates = function(node) {
-        for (var i = 0, evObj; evObj = evaluatorsExtraArray[i]; i++) {
-            if (evObj.node && !evObj.processed) {
-                evObj.processed = true;
-                (0,evaluatorsArray[i])();
+        for (var i = 0, options; options = taskOptions[i]; i++) {
+            if (options.node && !options.processed) {
+                options.processed = true;
+                (0,evaluators[i])();
             }
         }
     };
 
-    ko.processAllDeferredUpdates = processEvaluatorsCallback;
+    ko.processAllDeferredUpdates = processAllTasks;
 
     ko.evaluateAsynchronously = function(evaluator, timeout) {
         return setTimeout(tasks.makeProcessedCallback(evaluator), timeout);
@@ -128,18 +153,18 @@ ko.tasks = (function() {
     return tasks;
 })();
 
+
+// Helper functions for sniffing the minified Knockout code
 function findNameMethodSignatureContaining(obj, match) {
     for (var a in obj)
         if (obj.hasOwnProperty(a) && obj[a].toString().indexOf(match) >= 0)
             return a;
 }
-
 function findPropertyName(obj, equals) {
     for (var a in obj)
         if (obj.hasOwnProperty(a) && obj[a] === equals)
             return a;
 }
-
 function findSubObjectWithProperty(obj, prop) {
     for (var a in obj)
         if (obj.hasOwnProperty(a) && obj[a] && obj[a][prop])
