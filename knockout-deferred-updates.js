@@ -252,6 +252,10 @@ subscription = null;
  */
 var _frames = [], nonce = 0;
 function getId() {
+    // The main concern for this method of generating a unique id is that you could eventually
+    // overflowing the number storage size. In JavaScript, the largest exact integral value
+    // is 2^53 or 9,007,199,254,740,992; which seems plenty for any normal application.
+    // See http://blog.vjeux.com/2010/javascript/javascript-max_int-number-limits.html
     return ++nonce;
 }
 depDet[depDetBeginName] = function (callback) {
