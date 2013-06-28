@@ -1,7 +1,9 @@
-// Deferred Updates plugin for Knockout http://knockoutjs.com/
-// (c) Michael Best, Steven Sanderson
-// License: MIT (http://www.opensource.org/licenses/mit-license.php)
-// Version 2.3.0
+/**
+ * @license Deferred Updates plugin for Knockout http://knockoutjs.com/
+ * (c) Michael Best, Steven Sanderson
+ * License: MIT (http://www.opensource.org/licenses/mit-license.php)
+ * Version 2.3.0
+ */
 
 (function(factory) {
     if (typeof require === 'function' && typeof exports === 'object' && typeof module === 'object') {
@@ -65,7 +67,7 @@ ko.tasks = (function() {
                 indexNextToProcess = i + 1;
                 if (!options.processed) {
                     options.processed = true;
-                    (0,evaluators[i]).apply(options.object, options.args || []);
+                    evaluators[i].apply(options.object, options.args || []);
                     countProcessed++;
                 }
             }
@@ -137,7 +139,7 @@ ko.tasks = (function() {
         for (var i = 0, options; options = taskOptions[i]; i++) {
             if (options.node && !options.processed) {
                 options.processed = true;
-                (0,evaluators[i])();
+                evaluators[i].call();
             }
         }
     };
@@ -253,7 +255,7 @@ function getId() {
     return ++nonce;
 }
 depDet[depDetBeginName] = function (callback) {
-    _frames.push({ callback: callback, distinctDependencies:{} });
+    _frames.push({ callback: callback, deps:{} });
 };
 depDet.end = function () {
     _frames.pop();
@@ -264,9 +266,9 @@ depDet[depDetRegisterName] = function (subscribable) {
     if (_frames.length > 0) {
         var topFrame = _frames[_frames.length - 1],
             id = (subscribable._id = subscribable._id || getId());
-        if (!topFrame || topFrame.distinctDependencies[id])
+        if (!topFrame || topFrame.deps[id])
             return;
-        topFrame.distinctDependencies[id] = true;
+        topFrame.deps[id] = true;
         topFrame.callback(subscribable, id);
     }
 };
@@ -319,8 +321,8 @@ subFnObj[subFnName] = function (callback, callbackTarget, event, deferUpdates, c
 /*
  * Replace ko.subscribable.fn.notifySubscribers with one where dirty and change notifications are deferred
  */
-var oldnotifySubscribers = ko.subscribable.fn.notifySubscribers, notifyQueue;
-ko.subscribable.fn.notifySubscribers = function (valueToNotify, event) {
+var oldnotifySubscribers = subFnObj.notifySubscribers, notifyQueue;
+subFnObj.notifySubscribers = function (valueToNotify, event) {
     if (event === 'change' || event === 'dirty' || event === undefined) {
         if (!notifyQueue) {
             try {
@@ -436,9 +438,9 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         }
     }
 
-    function markAsChanged(value) {
+    function markAsChanged(value, event) {
         if (!_possiblyNeedsEvaluation && !_needsEvaluation) {
-            evaluatePossiblyAsync(value, 'change');
+            evaluatePossiblyAsync(value, event);
         } else {
             _needsEvaluation = true;
         }
@@ -641,7 +643,7 @@ ko.extenders.throttle = function(target, timeout) {
         // (1) For writable targets (observables, or writable dependent observables), we throttle *writes*
         //     so the target cannot change value synchronously or faster than a certain rate
         var writeTimeoutInstance = null;
-        return ko.dependentObservable({
+        return ko.computed({
             read: target,
             write: function(value) {
                 clearTimeout(writeTimeoutInstance);
