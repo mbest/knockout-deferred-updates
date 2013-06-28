@@ -293,11 +293,11 @@ subFnObj[subFnName] = function (callback, callbackTarget, event, deferUpdates, c
         var boundCallback = function(valueToNotify) {
             callback.call(callbackTarget, valueToNotify, event);
         };
-        if (event != 'change' || deferUpdates === false) {
+        if (event != 'change') {
             newCallback = boundCallback;
         } else {
             newCallback = function(valueToNotify) {
-                if (newComputed.deferUpdates || deferUpdates)
+                if ((newComputed.deferUpdates && subscription.deferUpdates !== false) || subscription.deferUpdates)
                     ko.tasks.processDelayed(boundCallback, true, {args: [valueToNotify]});
                 else
                     boundCallback(valueToNotify);
@@ -316,6 +316,7 @@ subFnObj[subFnName] = function (callback, callbackTarget, event, deferUpdates, c
     subscription.target = this;
     subscription.event = event;
     subscription.dependent = computed;
+    subscription.deferUpdates = deferUpdates;
     return subscription;
 }
 /*
@@ -658,6 +659,13 @@ ko.extenders.throttle = function(target, timeout) {
         target.throttleEvaluation = timeout;
         return target;
     }
+};
+
+/*
+ * Add deferred extender
+ */
+ko.extenders.deferred = function(target, value) {
+    target.deferUpdates = value;
 };
 
 return ko;
