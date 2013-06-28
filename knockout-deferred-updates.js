@@ -1,7 +1,7 @@
 // Deferred Updates plugin for Knockout http://knockoutjs.com/
 // (c) Michael Best, Steven Sanderson
 // License: MIT (http://www.opensource.org/licenses/mit-license.php)
-// Version 2.2.0
+// Version 2.3.0
 
 (function(factory) {
     if (typeof require === 'function' && typeof exports === 'object' && typeof module === 'object') {
@@ -151,6 +151,32 @@ ko.tasks = (function() {
     return tasks;
 })();
 
+/*
+ * Add ko.utils.objectForEach and ko.utils.objectMap if not present
+ */
+if (!ko.utils.objectForEach) {
+    ko.utils.objectForEach = function(obj, action) {
+        for (var prop in obj) {
+            if (obj.hasOwnProperty(prop)) {
+                action(prop, obj[prop]);
+            }
+        }
+    };
+}
+
+if (!ko.utils.objectMap) {
+    ko.utils.objectMap = function(source, mapping) {
+        if (!source)
+            return source;
+        var target = {};
+        for (var prop in source) {
+            if (source.hasOwnProperty(prop)) {
+                target[prop] = mapping(source[prop], prop, source);
+            }
+        }
+        return target;
+    };
+}
 
 // Helper functions for sniffing the minified Knockout code
 function findNameMethodSignatureContaining(obj, match) {
@@ -176,7 +202,7 @@ function findSubObjectWithProperty(obj, prop) {
 
 // Find ko.dependencyDetection and its methods
 var depDet = findSubObjectWithProperty(ko, 'end'),
-    depDetIgnoreName = findNameMethodSignatureContaining(depDet, '.apply('),
+    depDetIgnoreName = findNameMethodSignatureContaining(depDet, '.apply(') || 'ignore',
     depDetBeginName = findNameMethodSignatureContaining(depDet, '.push({'),
     depDetRegisterName = findNameMethodSignatureContaining(depDet, '.length');
 
@@ -212,25 +238,47 @@ var subFnObj = ko.subscribable.fn,
 
 // Find the name of ko.subscription.dispose
 var subscription = new ko.subscribable().subscribe(),
+    oldSubDispose = subscription.dispose,
     subscriptionProto = subscription.constructor.prototype,
-    subDisposeName = findPropertyName(subscriptionProto, subscription.dispose),
-    oldSubDispose = subscriptionProto[subDisposeName];
+    subDisposeName = findPropertyName(subscriptionProto, oldSubDispose);
 subscription.dispose();
 subscription = null;
 
+
 /*
- * Add ko.ignoreDependencies
+ * Update dependencyDetection to use an id for each observable
  */
-if (!ko.ignoreDependencies) {
-    ko.ignoreDependencies = depDetIgnoreName ? depDet[depDetIgnoreName] : function(callback, object, args) {
-        try {
-            depDet[depDetBeginName](function() {});
-            return callback.apply(object, args || []);
-        } finally {
-            depDet.end();
-        }
-    }
+var _frames = [], nonce = 0;
+function getId() {
+    return ++nonce;
 }
+depDet[depDetBeginName] = function (callback) {
+    _frames.push({ callback: callback, distinctDependencies:{} });
+};
+depDet.end = function () {
+    _frames.pop();
+};
+depDet[depDetRegisterName] = function (subscribable) {
+    if (!ko.isSubscribable(subscribable))
+        throw new Error("Only subscribable things can act as dependencies");
+    if (_frames.length > 0) {
+        var topFrame = _frames[_frames.length - 1],
+            id = (subscribable._id = subscribable._id || getId());
+        if (!topFrame || topFrame.distinctDependencies[id])
+            return;
+        topFrame.distinctDependencies[id] = true;
+        topFrame.callback(subscribable, id);
+    }
+};
+ko.ignoreDependencies = depDet[depDetIgnoreName] = function(callback, callbackTarget, callbackArgs) {
+    try {
+        _frames.push(null);
+        return callback.apply(callbackTarget, callbackArgs || []);
+    } finally {
+        _frames.pop();
+    }
+};
+
 
 /*
  * Replace ko.subscribable.fn.subscribe with one where change events are deferred
@@ -243,11 +291,11 @@ subFnObj[subFnName] = function (callback, callbackTarget, event, deferUpdates, c
         var boundCallback = function(valueToNotify) {
             callback.call(callbackTarget, valueToNotify, event);
         };
-        if (event != 'change') {
+        if (event != 'change' || deferUpdates === false) {
             newCallback = boundCallback;
         } else {
             newCallback = function(valueToNotify) {
-                if ((newComputed.deferUpdates && deferUpdates !== false) || deferUpdates)
+                if (newComputed.deferUpdates || deferUpdates)
                     ko.tasks.processDelayed(boundCallback, true, {args: [valueToNotify]});
                 else
                     boundCallback(valueToNotify);
@@ -299,13 +347,27 @@ ko.subscribable.fn.notifySubscribers = function (valueToNotify, event) {
 };
 // Provide a method to return a list of dependents (computed observables that depend on the subscribable)
 subFnObj.getDependents = function() {
-    return this.dependents ? this.dependents.slice(0) : [];
+    return this.dependents ? [].concat(this.dependents) : [];
 }
 // Update dispose function to clean up pointers to dependents
 subscriptionProto[subDisposeName] = function() {
     oldSubDispose.call(this);
     if (this.dependent && this.event == 'change')
         ko.utils.arrayRemoveItem(this.target.dependents, this.dependent);
+}
+
+// Helper function for subscribing to two events for computed observables.
+// This returns a single "subscription" object to simplify the computed code.
+function subscribeToComputed(target, dirtyCallback, changeCallback, subscriber) {
+    var dirtySub = target.subscribe(dirtyCallback, null, 'dirty', false, subscriber),
+        changeSub = target.subscribe(changeCallback, null, 'change', false, subscriber);
+    return {
+        dispose: function() {
+            dirtySub.dispose();
+            changeSub.dispose();
+        },
+        target: target
+    };
 }
 
 /*
@@ -336,15 +398,17 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     if (!evaluatorFunctionTarget)
         evaluatorFunctionTarget = options.owner;
 
-    var _subscriptionsToDependencies = [], othersToDispose = [];
+    var _subscriptionsToDependencies = {}, _dependenciesCount = 0, othersToDispose = [];
     function disposeAllSubscriptionsToDependencies() {
-        ko.utils.arrayForEach(_subscriptionsToDependencies, function (subscription) {
+        ko.utils.objectForEach(_subscriptionsToDependencies, function (id, subscription) {
             subscription.dispose();
         });
         ko.utils.arrayForEach(othersToDispose, function (subscription) {
             subscription.dispose();
         });
-        _subscriptionsToDependencies = [];
+        _subscriptionsToDependencies = {};
+        _dependenciesCount = 0;
+        othersToDispose = [];
         _possiblyNeedsEvaluation = _needsEvaluation = false;
     }
 
@@ -380,17 +444,23 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         }
     }
 
-    function addDependency(subscribable) {
-        var event = 'change';
+    function addDependency(subscribable, id) {
+        var subscription;
         if (subscribable[koProtoName] === newComputed) {
-            _subscriptionsToDependencies.push(subscribable.subscribe(markAsChanged, null, 'change', false, dependentObservable));
-            event = 'dirty';
+             subscription = subscribeToComputed(subscribable, evaluatePossiblyAsync, markAsChanged, dependentObservable);
+        } else {
+            subscription = subscribable.subscribe(evaluatePossiblyAsync, null, 'change', false, dependentObservable);
         }
-        _subscriptionsToDependencies.push(subscribable.subscribe(evaluatePossiblyAsync, null, event, false, dependentObservable));
+        _subscriptionsToDependencies[id] = subscription;
+        _dependenciesCount++;
     }
 
     function getDependencies() {
-        return ko.utils.arrayMap(_subscriptionsToDependencies, function(item) {return item.target;});
+        var result = [];
+        ko.utils.objectForEach(_subscriptionsToDependencies, function(id, item) {
+            result.push(item.target);
+        });
+        return result;
     }
 
     function evaluateImmediate(force) {
@@ -409,26 +479,25 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         try {
             // Initially, we assume that none of the subscriptions are still being used (i.e., all are candidates for disposal).
             // Then, during evaluation, we cross off any that are in fact still being used.
-            var disposalCandidates = getDependencies();
-
-            depDet[depDetBeginName](function(subscribable) {
-                var inOld;
-                if ((inOld = ko.utils.arrayIndexOf(disposalCandidates, subscribable)) >= 0) {
-                    disposalCandidates[inOld] = undefined; // Don't want to dispose this subscription, as it's still being used
-                    if (disposalCandidates[++inOld] === subscribable)
-                        disposalCandidates[inOld] = undefined;
+            var disposalCandidates = ko.utils.objectMap(_subscriptionsToDependencies, function() {return true;});
+            depDet[depDetBeginName](function(subscribable, id) {
+                if (id in disposalCandidates) {
+                    disposalCandidates[id] = undefined;  // Don't want to dispose this subscription, as it's still being used
                 } else {
-                    addDependency(subscribable); // Brand new subscription - add it
+                    addDependency(subscribable, id); // Brand new subscription - add it
                 }
             });
 
             var newValue = readFunction.call(evaluatorFunctionTarget);
 
             // For each subscription no longer being used, remove it from the active subscriptions list and dispose it
-            for (var i = disposalCandidates.length - 1; i >= 0; i--) {
-                if (disposalCandidates[i])
-                    _subscriptionsToDependencies.splice(i, 1)[0].dispose();
-            }
+            ko.utils.objectForEach(disposalCandidates, function(id, toDispose) {
+                if (toDispose) {
+                    _subscriptionsToDependencies[id].dispose();
+                    delete _subscriptionsToDependencies[id];
+                    _dependenciesCount--;
+                }
+            });
 
             _possiblyNeedsEvaluation = _needsEvaluation = false;
 
@@ -493,7 +562,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     }
 
     function isActive() {
-        return _needsEvaluation || _possiblyNeedsEvaluation || _subscriptionsToDependencies.length > 0;
+        return _needsEvaluation || _possiblyNeedsEvaluation || _dependenciesCount > 0;
     }
 
     var activeWhenComputed;
@@ -540,20 +609,12 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     ko.utils.extend(dependentObservable, newComputed.fn);
 
     dependentObservable[peekName] = dependentObservable.peek = peek;
-    dependentObservable[getDependenciesCountName] = dependentObservable.getDependenciesCount = function () { return _subscriptionsToDependencies.length; };
+    dependentObservable[getDependenciesCountName] = dependentObservable.getDependenciesCount = function () { return _dependenciesCount; };
     dependentObservable[hasWriteFunctionName] = dependentObservable.hasWriteFunction = typeof writeFunction === 'function';
     dependentObservable[disposeName] = dependentObservable.dispose = function () { dispose(); };
     dependentObservable[isActiveName] = dependentObservable.isActive = isActive;
     dependentObservable.activeWhen = activeWhen;
-    dependentObservable.getDependencies = function() {
-        return ko.utils.arrayMap(
-            ko.utils.arrayFilter(
-                _subscriptionsToDependencies,
-                function(item) {return item.event == 'change'}
-            ),
-            function(item) {return item.target}
-        );
-    };
+    dependentObservable.getDependencies = getDependencies;
 
     return dependentObservable;
 };
