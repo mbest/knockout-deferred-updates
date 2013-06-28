@@ -135,7 +135,7 @@ ko.tasks = (function() {
     };
 
     ko.processDeferredBindingUpdatesForNode =       // deprecated (included for compatibility)
-    ko.processAllDeferredBindingUpdates = function(node) {
+    ko.processAllDeferredBindingUpdates = function() {
         for (var i = 0, options; options = taskOptions[i]; i++) {
             if (options.node && !options.processed) {
                 options.processed = true;
