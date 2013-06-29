@@ -438,8 +438,10 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
             evaluationTimeoutInstance = ko.evaluateAsynchronously(evaluateImmediate, throttleEvaluationTimeout);
         } else if ((newComputed.deferUpdates && dependentObservable.deferUpdates !== false) || dependentObservable.deferUpdates)
             shouldNotify = ko.tasks.processDelayed(evaluateImmediate, true, {node: disposeWhenNodeIsRemoved});
-        else if (_needsEvaluation)
-            shouldNotify = evaluateImmediate();
+        else if (_needsEvaluation) {
+            evaluateImmediate();
+            shouldNotify = false;
+        }
 
         if (shouldNotify && dependentObservable.notifySubscribers) {     // notifySubscribers won't exist on first evaluation (but there won't be any subscribers anyway)
             dependentObservable.notifySubscribers(_latestValue, 'dirty');
@@ -478,13 +480,13 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     function evaluateImmediate(force) {
         if (_dontEvaluate || (!_needsEvaluation && !(force === true))) {    // test for exact *true* value since Firefox will pass an integer value when this function is called through setTimeout
             _possiblyNeedsEvaluation = _needsEvaluation;
-            return false;
+            return;
         }
 
         // disposeWhen won't be set until after initial evaluation
         if (disposeWhen && disposeWhen()) {
             dependentObservable.dispose();
-            return false;
+            return;
         }
 
         _dontEvaluate = true;
@@ -527,7 +529,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
             _possiblyNeedsEvaluation = _needsEvaluation = false;
         }
 
-        return true;
+        return;
     }
 
     function evaluateInitial() {
