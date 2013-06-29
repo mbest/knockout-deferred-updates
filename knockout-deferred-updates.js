@@ -2,7 +2,7 @@
  * @license Deferred Updates plugin for Knockout http://knockoutjs.com/
  * (c) Michael Best, Steven Sanderson
  * License: MIT (http://www.opensource.org/licenses/mit-license.php)
- * Version 2.3.0
+ * Version 2.3.1
  */
 
 (function(factory) {
@@ -35,71 +35,73 @@ ko.tasks = (function() {
         clearImmediate = 'clearTimeout';
     }
 
-    var evaluatorHandler, evaluators = [], taskOptions = [], contextStack = [], indexNextToProcess, indexContextStart = 0;
+    var evaluatorHandler, taskQueueHead = {}, taskQueueEnd = taskQueueHead, contextStack = [], processingItem, contextStart = taskQueueHead;
 
     // Begin a new task context. Any tasks that are scheduled during this context will be processed when the context ends
     function startTaskContext() {
-        // Save the previous context start index in the stack
-        contextStack.push(indexContextStart);
-        // Set the new context start index to the current task length: any newly scheduled tasks are part of the current context
-        indexContextStart = evaluators.length;
+        // Save the previous context start in the stack
+        contextStack.push(contextStart);
+        // Set the new context start to the current task length: any newly scheduled tasks are part of the current context
+        contextStart = taskQueueEnd;
     }
 
     // End the current task context and process any scheduled tasks
     function endTaskContext() {
         try {
             // Process any tasks that were scheduled within this context
-            if (evaluators.length > indexContextStart)
-                processTasks(indexContextStart);
+            if (contextStart._next)
+                processTasks(contextStart);
         } finally {
             // Move back into the previous context
-            indexContextStart = contextStack.pop() || 0;
+            contextStart = contextStack.pop() || taskQueueHead;
         }
     }
 
     function processTasks(start) {
-        if (start < indexNextToProcess) {   // don't allow processTasks to be called again for an earlier set
-            return;
-        }
         var countProcessed = 0;
         try {
-            for (var i = start, options; options = taskOptions[i]; i++) {
-                indexNextToProcess = i + 1;
-                if (!options.processed) {
-                    options.processed = true;
-                    evaluators[i].apply(options.object, options.args || []);
+            for (var item = start; item = item._next; ) {
+                processingItem = item;
+                if (!item._done) {
+                    item._done = true;
+                    item._func.apply(item.object, item.args || []);
                     countProcessed++;
                 }
             }
         } finally {
-            if (start) {
-                // Remove only items we've just processed (shorten array to *start* items)
-                evaluators.splice(start, evaluators.length);
-                taskOptions.splice(start, taskOptions.length);
+            if (start !== taskQueueHead) {
+                // Remove the items we've just processed
+                start._next = null;
+                taskQueueEnd = start;
             } else {
-                // Clear array and handler to indicate that we're finished
-                evaluators = [];
-                taskOptions = [];
+                // Clear the queue, stack and handler
                 contextStack = [];
-                indexContextStart = 0;
+                taskQueueHead._next = null;
+                contextStart = taskQueueEnd = taskQueueHead;
 
                 if (evaluatorHandler)
                     g[clearImmediate](evaluatorHandler);
                 evaluatorHandler = undefined;
             }
-            indexNextToProcess = undefined;
+            processingItem = undefined;
         }
         return countProcessed++;
     }
 
     function processAllTasks() {
-        return processTasks(0);
+        // Don't process all tasks if already processing tasks
+        if (!processingItem) {
+            return processTasks(taskQueueHead);
+        }
     }
 
     function clearDuplicate(evaluator) {
-        for (var i = indexNextToProcess || indexContextStart, j = evaluators.length; i < j; i++)
-            if (evaluators[i] === evaluator && !taskOptions[i].processed) {
-                taskOptions[i].processed = true;
+        for (var link = processingItem || contextStart, item; item = link._next; link = item)
+            if (item._func === evaluator && !item._done) {
+                // remove the item from the queue
+                link._next = item._next;
+                if (!link._next)
+                    taskQueueEnd = link;
                 return true;
             }
         return false;
@@ -118,8 +120,11 @@ ko.tasks = (function() {
         processDelayed: function(evaluator, distinct, options) {
             var foundDup = (distinct || distinct === undefined) && clearDuplicate(evaluator);
 
-            evaluators.push(evaluator);
-            taskOptions.push(options || {});
+            var item = options || {};
+            item._func = evaluator;
+
+            taskQueueEnd._next = item;
+            taskQueueEnd = item;
 
             if (!contextStack.length && !evaluatorHandler) {
                 evaluatorHandler = g[setImmediate](processAllTasks);
@@ -136,10 +141,10 @@ ko.tasks = (function() {
 
     ko.processDeferredBindingUpdatesForNode =       // deprecated (included for compatibility)
     ko.processAllDeferredBindingUpdates = function() {
-        for (var i = 0, options; options = taskOptions[i]; i++) {
-            if (options.node && !options.processed) {
-                options.processed = true;
-                evaluators[i].call();
+        for (var item = taskQueueHead; item = item._next; ) {
+            if (item.node && !item._done) {
+                item._done = true;
+                item._func.call();
             }
         }
     };
