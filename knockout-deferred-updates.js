@@ -264,7 +264,7 @@ function getId() {
     return ++nonce;
 }
 depDet[depDetBeginName] = function (callback) {
-    _frames.push({ callback: callback, deps:{} });
+    _frames.push({ callback: callback, arrayDeps:[], idDeps:null });
 };
 depDet.end = function () {
     _frames.pop();
@@ -275,9 +275,12 @@ depDet[depDetRegisterName] = function (subscribable) {
     if (_frames.length > 0) {
         var topFrame = _frames[_frames.length - 1],
             id = (subscribable._id = subscribable._id || getId());
-        if (!topFrame || topFrame.deps[id])
+        if (!topFrame || ko.utils.arrayIndexOf(topFrame.arrayDeps, id) >= 0 || (topFrame.idDeps && topFrame.idDeps[id]))
             return;
-        topFrame.deps[id] = true;
+        if (topFrame.idDeps)
+            topFrame.idDeps[id] = true;
+        else if (topFrame.arrayDeps.push(id) >= 10)
+            topFrame.idDeps = {};
         topFrame.callback(subscribable, id);
     }
 };
@@ -493,10 +496,11 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         try {
             // Initially, we assume that none of the subscriptions are still being used (i.e., all are candidates for disposal).
             // Then, during evaluation, we cross off any that are in fact still being used.
-            var disposalCandidates = ko.utils.objectMap(_subscriptionsToDependencies, function() {return true;});
+            var disposalCandidates = ko.utils.objectMap(_subscriptionsToDependencies, function() {return true;}), numToDispose = _dependenciesCount;
             depDet[depDetBeginName](function(subscribable, id) {
-                if (id in disposalCandidates) {
+                if (disposalCandidates[id]) {
                     disposalCandidates[id] = undefined;  // Don't want to dispose this subscription, as it's still being used
+                    numToDispose--;
                 } else {
                     addDependency(subscribable, id); // Brand new subscription - add it
                 }
@@ -505,13 +509,15 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
             var newValue = readFunction.call(evaluatorFunctionTarget);
 
             // For each subscription no longer being used, remove it from the active subscriptions list and dispose it
-            ko.utils.objectForEach(disposalCandidates, function(id, toDispose) {
-                if (toDispose) {
-                    _subscriptionsToDependencies[id].dispose();
-                    delete _subscriptionsToDependencies[id];
-                    _dependenciesCount--;
-                }
-            });
+            if (numToDispose) {
+                ko.utils.objectForEach(disposalCandidates, function(id, toDispose) {
+                    if (toDispose) {
+                        _subscriptionsToDependencies[id].dispose();
+                        delete _subscriptionsToDependencies[id];
+                        _dependenciesCount--;
+                    }
+                });
+            }
 
             _possiblyNeedsEvaluation = _needsEvaluation = false;
 
