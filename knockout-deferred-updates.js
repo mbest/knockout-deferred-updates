@@ -258,13 +258,13 @@ subscription = null;
 var _frames = [], nonce = 0;
 function getId() {
     // The main concern for this method of generating a unique id is that you could eventually
-    // overflowing the number storage size. In JavaScript, the largest exact integral value
+    // overflow the number storage size. In JavaScript, the largest exact integral value
     // is 2^53 or 9,007,199,254,740,992; which seems plenty for any normal application.
     // See http://blog.vjeux.com/2010/javascript/javascript-max_int-number-limits.html
     return ++nonce;
 }
 depDet[depDetBeginName] = function (callback) {
-    _frames.push({ callback: callback, arrayDeps:[], idDeps:null });
+    _frames.push(callback);
 };
 depDet.end = function () {
     _frames.pop();
@@ -273,15 +273,9 @@ depDet[depDetRegisterName] = function (subscribable) {
     if (!ko.isSubscribable(subscribable))
         throw new Error("Only subscribable things can act as dependencies");
     if (_frames.length > 0) {
-        var topFrame = _frames[_frames.length - 1],
-            id = (subscribable._id = subscribable._id || getId());
-        if (!topFrame || ko.utils.arrayIndexOf(topFrame.arrayDeps, id) >= 0 || (topFrame.idDeps && topFrame.idDeps[id]))
-            return;
-        if (topFrame.idDeps)
-            topFrame.idDeps[id] = true;
-        else if (topFrame.arrayDeps.push(id) >= 10)
-            topFrame.idDeps = {};
-        topFrame.callback(subscribable, id);
+        var topFrame = _frames[_frames.length - 1];
+        if (topFrame)
+            topFrame(subscribable, (subscribable._id = subscribable._id || getId()));
     }
 };
 ko.ignoreDependencies = depDet[depDetIgnoreName] = function(callback, callbackTarget, callbackArgs) {
@@ -463,14 +457,16 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     }
 
     function addDependency(subscribable, id) {
-        var subscription;
-        if (subscribable[koProtoName] === newComputed) {
-             subscription = subscribeToComputed(subscribable, evaluatePossiblyAsync, markAsChanged, dependentObservable);
-        } else {
-            subscription = subscribable.subscribe(evaluatePossiblyAsync, null, 'change', false, dependentObservable);
+        if (!_subscriptionsToDependencies[id]) {
+            var subscription;
+            if (subscribable[koProtoName] === newComputed) {
+                 subscription = subscribeToComputed(subscribable, evaluatePossiblyAsync, markAsChanged, dependentObservable);
+            } else {
+                subscription = subscribable.subscribe(evaluatePossiblyAsync, null, 'change', false, dependentObservable);
+            }
+            _subscriptionsToDependencies[id] = subscription;
+            _dependenciesCount++;
         }
-        _subscriptionsToDependencies[id] = subscription;
-        _dependenciesCount++;
     }
 
     function getDependencies() {

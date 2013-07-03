@@ -226,8 +226,10 @@ describe('Dependent Observable', function() {
         var observable = new ko.observable();
         var depedentObservable = new ko.dependentObservable(function () { return observable() * observable(); });
         depedentObservable.subscribe(function (value) { notifiedValues.push(value); });
+        expect(observable.getSubscriptionsCount()).toEqual(1);
         observable(2);
         ko.processAllDeferredUpdates();
+        expect(observable.getSubscriptionsCount()).toEqual(1);
         expect(notifiedValues.length).toEqual(1);
         expect(notifiedValues[0]).toEqual(4);
     });
