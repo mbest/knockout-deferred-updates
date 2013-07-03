@@ -284,6 +284,48 @@ describe('Dependent Observable', function() {
         expect(dependent.isActive()).toEqual(false);
     });
 
+    it('Should not dispose until the disposeWhen function returns false at least once', function () {
+        // This supports the pattern that an application might create and update a computed
+        // while its still being initialized. During initialization, disposeWhen might return true
+        // but this is ignored. Later, when the application is initialized, it will return false.
+        // Even later, the computed will actually be disposed if disposeWhen returns true.
+        var underlyingObservable = new ko.observable(100);
+        var timeToDispose = true;
+        var timesEvaluated = 0;
+        var computed = new ko.computed(
+            function () { timesEvaluated++; return underlyingObservable() + 1; },
+            null,
+            { disposeWhen: function () { return timeToDispose; } }
+        );
+        // computed is never disposed initially
+        expect(timesEvaluated).toEqual(1);
+        expect(computed.getDependenciesCount()).toEqual(1);
+        expect(computed.isActive()).toEqual(true);
+
+        // disposeWhen value is still true, to it won't be disposed
+        underlyingObservable(101);
+        ko.processAllDeferredUpdates();
+        expect(timesEvaluated).toEqual(2);
+        expect(computed.getDependenciesCount()).toEqual(1);
+        expect(computed.isActive()).toEqual(true);
+
+        // disposeWhen is false, so don't dispose
+        timeToDispose = false;
+        underlyingObservable(102);
+        ko.processAllDeferredUpdates();
+        expect(timesEvaluated).toEqual(3);
+        expect(computed.getDependenciesCount()).toEqual(1);
+        expect(computed.isActive()).toEqual(true);
+
+        // Back to true, now it will be disposed
+        timeToDispose = true;
+        underlyingObservable(103);
+        ko.processAllDeferredUpdates();
+        expect(timesEvaluated).toEqual(3);
+        expect(computed.getDependenciesCount()).toEqual(0);
+        expect(computed.isActive()).toEqual(false);
+    });
+
     it('Should describe itself as active if the evaluator has dependencies on its first run', function() {
         var someObservable = ko.observable('initial'),
             dependentObservable = new ko.dependentObservable(function () { return someObservable(); });

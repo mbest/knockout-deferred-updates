@@ -393,6 +393,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         _possiblyNeedsEvaluation = false,
         _needsEvaluation = true,
         _dontEvaluate = false,
+        _canDispose = false,
         readFunction = evaluatorFunctionOrOptions;
 
     if (readFunction && typeof readFunction == 'object') {
@@ -487,9 +488,13 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         }
 
         // disposeWhen won't be set until after initial evaluation
-        if (disposeWhen && disposeWhen()) {
-            dependentObservable.dispose();
-            return;
+        if (disposeWhen) {
+            if (!disposeWhen()) {
+                _canDispose = true;
+            } else if (_canDispose) {
+                dependentObservable.dispose();
+                return;
+            }
         }
 
         _dontEvaluate = true;
@@ -623,6 +628,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
             return !ko.utils[nodeInDocName](disposeWhenNodeIsRemoved) || existingDisposeWhenFunction();
         }
     }
+    _canDispose = !disposeWhen();
 
     // Set properties of returned function
     ko.subscribable.call(dependentObservable);
