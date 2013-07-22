@@ -17,6 +17,7 @@ describe("Throttled observables", function() {
         });
 
         // Wait
+        waits(10);
         runs(function() {
             // Mutate more
             observable('E');
@@ -27,7 +28,7 @@ describe("Throttled observables", function() {
         // Wait until after timeout
         waitsFor(function() {
             return notifiedValues.length > 0;
-        }, 150);
+        }, 300);
         runs(function() {
             expect(notifiedValues.length).toEqual(1);
             expect(notifiedValues[0]).toEqual("F");
@@ -77,7 +78,7 @@ describe("Throttled dependent observables", function() {
         // Now wait for throttle timeout
         waitsFor(function() {
             return notifiedValues.length > 0;
-        }, 150);
+        }, 300);
         runs(function() {
             expect(lastUpdateValue).toEqual('New value');
             expect(notifiedValues.length).toEqual(1);
@@ -114,7 +115,7 @@ describe("Throttled dependent observables", function() {
         // Now wait for throttle timeout
         waitsFor(function() {
             return evaluationCount > 1;
-        }, 150);
+        }, 300);
         runs(function() {
             expect(evaluationCount).toEqual(2); // Finally, it's evaluated
             expect(asyncDepObs()).toEqual("D");

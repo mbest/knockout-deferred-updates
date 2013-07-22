@@ -66,11 +66,11 @@ describe('Binding: Hasfocus', function() {
         expect(model.myVal).toEqual(false);
     });
 
-    xit('Should be aliased as hasFocus as well as hasfocus', function() {
+    it('Should be aliased as hasFocus as well as hasfocus', function() {
         expect(ko.bindingHandlers.hasFocus).toEqual(ko.bindingHandlers.hasfocus);
     });
 
-    xit('Should not unnecessarily focus or blur an element that is already focused/blurred', function() {
+    it('Should not unnecessarily focus or blur an element that is already focused/blurred', function() {
         // This is the closest we can get to representing issue #698 as a spec
         var model = { isFocused: ko.observable({}) };
         testNode.innerHTML = "<input data-bind='hasfocus: isFocused' />";

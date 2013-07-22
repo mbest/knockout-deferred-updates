@@ -164,7 +164,29 @@ describe('Binding: Checked', function() {
         expect(testNode.childNodes[0].checked).toEqual(false);
     });
 
-    xit('When a \'checkedValue\' is specified, should use that as the checkbox value in the array', function() {
+    it('When the radio button \'value\' attribute is set via attr binding, should set initial checked state correctly (attr before checked)', function() {
+        var myobservable = new ko.observable("this radio button value");
+        testNode.innerHTML = "<input type='radio' data-bind='attr:{value:\"this radio button value\"}, checked:someProp' />";
+        ko.applyBindings({ someProp: myobservable }, testNode);
+
+        expect(testNode.childNodes[0].checked).toEqual(true);
+        myobservable("another value");
+        ko.processAllDeferredBindingUpdates();
+        expect(testNode.childNodes[0].checked).toEqual(false);
+    });
+
+    it('When the radio button \'value\' attribute is set via attr binding, should set initial checked state correctly (checked before attr)', function() {
+        var myobservable = new ko.observable("this radio button value");
+        testNode.innerHTML = "<input type='radio' data-bind='checked:someProp, attr:{value:\"this radio button value\"}' />";
+        ko.applyBindings({ someProp: myobservable }, testNode);
+
+        expect(testNode.childNodes[0].checked).toEqual(true);
+        myobservable("another value");
+        ko.processAllDeferredBindingUpdates();
+        expect(testNode.childNodes[0].checked).toEqual(false);
+    });
+
+    it('When a \'checkedValue\' is specified, should use that as the checkbox value in the array', function() {
         var model = { myArray: ko.observableArray([1,3]) };
         testNode.innerHTML = "<input type='checkbox' data-bind='checked:myArray, checkedValue:1' />"
                            + "<input value='off' type='checkbox' data-bind='checked:myArray, checkedValue:2' />";
@@ -192,14 +214,16 @@ describe('Binding: Checked', function() {
 
         // Put the value in the array; observe the checkbox reflect this
         model.myArray.push(2);
+        ko.processAllDeferredBindingUpdates();
         expect(testNode.childNodes[1].checked).toEqual(true);
 
         // Remove the value from the array; observe the checkbox reflect this
         model.myArray.remove(1);
+        ko.processAllDeferredBindingUpdates();
         expect(testNode.childNodes[0].checked).toEqual(false);
     });
 
-    xit('Should be able to use objects as value of checkboxes using \'checkedValue\'', function() {
+    it('Should be able to use objects as value of checkboxes using \'checkedValue\'', function() {
         var object1 = {x:1},
             object2 = {y:1},
             model = { values: [object1], choices: [object1, object2] };
@@ -221,7 +245,7 @@ describe('Binding: Checked', function() {
         expect(model.values).toEqual([object1]);
     });
 
-    xit('Should be able to use observables as value of checkboxes using \'checkedValue\'', function() {
+    it('Should be able to use observables as value of checkboxes using \'checkedValue\'', function() {
         var object1 = {id:ko.observable(1)},
             object2 = {id:ko.observable(2)},
             model = { values: [1], choices: [object1, object2] };
@@ -232,20 +256,29 @@ describe('Binding: Checked', function() {
         expect(testNode.childNodes[0].childNodes[0].checked).toEqual(true);
         expect(testNode.childNodes[0].childNodes[1].checked).toEqual(false);
 
-        // Update the value observable; should update that checkbox
+        // Update the value observable of the checked item; should update the selected values and leave checked values unchanged
         object1.id(3);
+        ko.processAllDeferredBindingUpdates();
+        expect(testNode.childNodes[0].childNodes[0].checked).toEqual(true);
+        expect(testNode.childNodes[0].childNodes[1].checked).toEqual(false);
+        expect(model.values).toEqual([3]);
 
-        // Represents current behavior, that the array is unchanged and the checkbox is unchecked
-        expect(testNode.childNodes[0].childNodes[0].checked).toEqual(false);
-        expect(model.values).toEqual([1]);
+        // Update the value observable of the unchecked item; should do nothing
+        object2.id(4);
+        ko.processAllDeferredBindingUpdates();
+        expect(model.values).toEqual([3]);
+        expect(testNode.childNodes[0].childNodes[0].checked).toEqual(true);
+        expect(testNode.childNodes[0].childNodes[1].checked).toEqual(false);
 
-        // But the correct behavior might be to keep it checked and update the array
-        // Implementing this correct behavior will probably require independent bindings (#321) and/or binding ordering
-        //expect(testNode.childNodes[0].childNodes[0].checked).toEqual(true);
-        //expect(model.values).toEqual([3]);
+        // Update the value observable of the unchecked item to the current model value; should set to checked
+        object2.id(3);
+        ko.processAllDeferredBindingUpdates();
+        expect(model.values).toEqual([3]);
+        expect(testNode.childNodes[0].childNodes[0].checked).toEqual(true);
+        expect(testNode.childNodes[0].childNodes[1].checked).toEqual(true);
     });
 
-    xit('When a \'checkedValue\' is specified, should use that as the radio button\'s value', function () {
+    it('When a \'checkedValue\' is specified, should use that as the radio button\'s value', function () {
         var myobservable = new ko.observable(false);
         testNode.innerHTML = "<input type='radio' data-bind='checked:someProp, checkedValue:true' />" +
             "<input type='radio' data-bind='checked:someProp, checkedValue:false' />";
@@ -259,17 +292,19 @@ describe('Binding: Checked', function() {
 
         // Update observable; verify elements
         myobservable(true);
+        ko.processAllDeferredBindingUpdates();
         expect(testNode.childNodes[0].checked).toEqual(true);
         expect(testNode.childNodes[1].checked).toEqual(false);
 
         // "Click" a button; verify observable and elements
         testNode.childNodes[1].click();
+        ko.processAllDeferredBindingUpdates();
         expect(myobservable()).toEqual(false);
         expect(testNode.childNodes[0].checked).toEqual(false);
         expect(testNode.childNodes[1].checked).toEqual(true);
     });
 
-    xit('Should be able to use observables as value of radio buttons using \'checkedValue\'', function () {
+    it('Should be able to use observables as value of radio buttons using \'checkedValue\'', function () {
         var object1 = {id:ko.observable(1)},
             object2 = {id:ko.observable(2)},
             model = { value: 1, choices: [object1, object2] };
@@ -281,17 +316,26 @@ describe('Binding: Checked', function() {
         expect(testNode.childNodes[0].childNodes[0].checked).toEqual(true);
         expect(testNode.childNodes[0].childNodes[1].checked).toEqual(false);
 
-        // Update the value observable
+        // Update the value observable of the checked item; should update the selected value and leave checked values unchanged
         object1.id(3);
+        ko.processAllDeferredBindingUpdates();
+        expect(model.value).toEqual(3);
+        expect(testNode.childNodes[0].childNodes[0].checked).toEqual(true);
+        expect(testNode.childNodes[0].childNodes[1].checked).toEqual(false);
 
-        // The current behavior is to uncheck the radio button
-        expect(testNode.childNodes[0].childNodes[0].checked).toEqual(false);
-        expect(model.value).toEqual(1);
+        // Update the value observable of the unchecked item; should do nothing
+        object2.id(4);
+        ko.processAllDeferredBindingUpdates();
+        expect(model.value).toEqual(3);
+        expect(testNode.childNodes[0].childNodes[0].checked).toEqual(true);
+        expect(testNode.childNodes[0].childNodes[1].checked).toEqual(false);
 
-        // But the correct behavior might be to keep it checked and update the model "value"
-        // Implementing this correct behavior will probably require independent bindings (#321) and/or binding ordering
-        //expect(testNode.childNodes[0].childNodes[0].checked).toEqual(true);
-        //expect(model.value).toEqual(3);
+        // Update the value observable of the unchecked item to the current model value; should set to checked
+        object2.id(3);
+        ko.processAllDeferredBindingUpdates();
+        expect(model.value).toEqual(3);
+        expect(testNode.childNodes[0].childNodes[0].checked).toEqual(true);
+        expect(testNode.childNodes[0].childNodes[1].checked).toEqual(true);
     });
 
 });

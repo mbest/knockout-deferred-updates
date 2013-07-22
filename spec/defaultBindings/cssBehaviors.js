@@ -58,7 +58,7 @@ describe('Binding: CSS class name', function() {
         expect(testNode.childNodes[0].className).toEqual("unrelatedClass1");
     });
 
-    xit('Should work with any arbitrary class names', function() {
+    it('Should work with any arbitrary class names', function() {
         // See https://github.com/SteveSanderson/knockout/issues/704
         var observable1 = new ko.observable();
         testNode.innerHTML = "<div data-bind='css: { \"complex/className complex.className\" : someModelProperty }'>Something</div>";

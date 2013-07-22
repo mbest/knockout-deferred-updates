@@ -35,6 +35,16 @@ describe('Binding: Value', function() {
         expect(testNode.childNodes[0].value).toEqual("456");
     });
 
+    it('For observable values, should update on change if new value is \'strictly\' different from previous value', function() {
+        var myobservable = new ko.observable("+123");
+        testNode.innerHTML = "<input data-bind='value:someProp' />";
+        ko.applyBindings({ someProp: myobservable }, testNode);
+        expect(testNode.childNodes[0].value).toEqual("+123");
+        myobservable(123);
+        ko.processAllDeferredBindingUpdates();
+        expect(testNode.childNodes[0].value).toEqual("123");
+    });
+
     it('For writeable observable values, should catch the node\'s onchange and write values back to the observable', function () {
         var myobservable = new ko.observable(123);
         testNode.innerHTML = "<input data-bind='value:someProp' />";
@@ -81,7 +91,7 @@ describe('Binding: Value', function() {
         expect(isValid()).toEqual(true);
     });
 
-    xit('Should ignore node changes when bound to a read-only observable', function() {
+    it('Should ignore node changes when bound to a read-only observable', function() {
         var computedValue = ko.computed(function() { return 'zzz' });
         var vm = { prop: computedValue };
 
@@ -294,16 +304,16 @@ describe('Binding: Value', function() {
             expect(testNode.childNodes[0].selectedIndex).toEqual(0);
 
             // Caption is selected when observable changed to ""
-            //observable("B");
-            //ko.processAllDeferredBindingUpdates();
-            //expect(testNode.childNodes[0].selectedIndex).toEqual(2);
-            //observable("");
-            //ko.processAllDeferredBindingUpdates();
-            //expect(testNode.childNodes[0].selectedIndex).toEqual(0);
+            observable("B");
+            ko.processAllDeferredBindingUpdates();
+            expect(testNode.childNodes[0].selectedIndex).toEqual(2);
+            observable("");
+            ko.processAllDeferredBindingUpdates();
+            expect(testNode.childNodes[0].selectedIndex).toEqual(0);
 
         });
 
-        xit('Should display the caption when the model value changes to undefined, null, or \"\" when options specified directly', function() {
+        it('Should display the caption when the model value changes to undefined, null, or \"\" when options specified directly', function() {
             var observable = new ko.observable('B');
             testNode.innerHTML = "<select data-bind='value:myObservable'><option value=''>Select...</option><option>A</option><option>B</option></select>";
             ko.applyBindings({ myObservable: observable }, testNode);
@@ -311,18 +321,23 @@ describe('Binding: Value', function() {
             // Caption is selected when observable changed to undefined
             expect(testNode.childNodes[0].selectedIndex).toEqual(2);
             observable(undefined);
+            ko.processAllDeferredBindingUpdates();
             expect(testNode.childNodes[0].selectedIndex).toEqual(0);
 
             // Caption is selected when observable changed to null
             observable("B");
+            ko.processAllDeferredBindingUpdates();
             expect(testNode.childNodes[0].selectedIndex).toEqual(2);
             observable(null);
+            ko.processAllDeferredBindingUpdates();
             expect(testNode.childNodes[0].selectedIndex).toEqual(0);
 
             // Caption is selected when observable changed to ""
             observable("B");
+            ko.processAllDeferredBindingUpdates();
             expect(testNode.childNodes[0].selectedIndex).toEqual(2);
             observable("");
+            ko.processAllDeferredBindingUpdates();
             expect(testNode.childNodes[0].selectedIndex).toEqual(0);
 
         });

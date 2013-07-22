@@ -23,7 +23,7 @@ describe('unwrapObservable', function() {
         expect(ko.utils.unwrapObservable(undefined)).toBe(undefined);
     });
 
-    xit('Should be aliased as ko.unwrap', function() {
+    it('Should be aliased as ko.unwrap', function() {
         expect(ko.unwrap).toBe(ko.utils.unwrapObservable);
         expect(ko.unwrap(ko.observable('some value'))).toBe('some value');
     });

@@ -5,11 +5,11 @@ describe('Subscribable', function() {
         expect(ko.isSubscribable(instance)).toEqual(true);
     });
 
-    xit('isSubscribable should return false for undefined', function () {
+    it('isSubscribable should return false for undefined', function () {
         expect(ko.isSubscribable(undefined)).toEqual(false);
     });
 
-    xit('isSubscribable should return false for null', function () {
+    it('isSubscribable should return false for null', function () {
         expect(ko.isSubscribable(null)).toEqual(false);
     });
 
