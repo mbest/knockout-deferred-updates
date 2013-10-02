@@ -2,6 +2,8 @@ describe('Binding attribute syntax', function() {
     beforeEach(jasmine.prepareTestNode);
 
     it('applyBindings should accept no parameters and then act on document.body with undefined model', function() {
+        this.after(function () { ko.utils.domData.clear(document.body); });     // Just to avoid interfering with other specs
+
         var didInit = false;
         ko.bindingHandlers.test = {
             init: function (element, valueAccessor, allBindings, viewModel) {
@@ -13,12 +15,11 @@ describe('Binding attribute syntax', function() {
         testNode.innerHTML = "<div id='testElement' data-bind='test:123'></div>";
         ko.applyBindings();
         expect(didInit).toEqual(true);
-
-        // Just to avoid interfering with other specs:
-        ko.utils.domData.clear(document.body);
     });
 
     it('applyBindings should accept one parameter and then act on document.body with parameter as model', function() {
+        this.after(function () { ko.utils.domData.clear(document.body); });     // Just to avoid interfering with other specs
+
         var didInit = false;
         var suppliedViewModel = {};
         ko.bindingHandlers.test = {
@@ -31,9 +32,6 @@ describe('Binding attribute syntax', function() {
         testNode.innerHTML = "<div id='testElement' data-bind='test:123'></div>";
         ko.applyBindings(suppliedViewModel);
         expect(didInit).toEqual(true);
-
-        // Just to avoid interfering with other specs:
-        ko.utils.domData.clear(document.body);
     });
 
     it('applyBindings should accept two parameters and then act on second param as DOM node with first param as model', function() {
@@ -47,15 +45,14 @@ describe('Binding attribute syntax', function() {
             }
         };
         testNode.innerHTML = "<div id='testElement' data-bind='test:123'></div>";
+
         var shouldNotMatchNode = document.createElement("DIV");
         shouldNotMatchNode.innerHTML = "<div id='shouldNotMatchThisElement' data-bind='test:123'></div>";
         document.body.appendChild(shouldNotMatchNode);
-        try {
-            ko.applyBindings(suppliedViewModel, testNode);
-            expect(didInit).toEqual(true);
-        } finally {
-            shouldNotMatchNode.parentNode.removeChild(shouldNotMatchNode);
-        }
+        this.after(function () { document.body.removeChild(shouldNotMatchNode); });
+
+        ko.applyBindings(suppliedViewModel, testNode);
+        expect(didInit).toEqual(true);
     });
 
     it('Should tolerate empty or only white-space binding strings', function() {
@@ -77,6 +74,26 @@ describe('Binding attribute syntax', function() {
         // Represents issue https://github.com/SteveSanderson/knockout/issues/186. Would fail on IE9, but work on earlier IE versions.
         testNode.innerHTML = "<div><!--[if IE]><!-->Hello<!--<![endif]--></div>";
         ko.applyBindings(null, testNode); // No exception means success
+    });
+
+    it('Should produce a meaningful error if a binding value contains invalid JavaScript', function() {
+        ko.bindingHandlers.test = {
+            init: function (element, valueAccessor) { valueAccessor(); }
+        };
+        testNode.innerHTML = "<div data-bind='test: (1;2)'></div>";
+        expect(function () {
+            ko.applyBindings(null, testNode);
+        }).toThrowContaining("Unable to parse bindings.\nBindings value: test: (1;2)\nMessage:");
+    });
+
+    it('Should produce a meaningful error if a binding value doesn\'t exist', function() {
+        ko.bindingHandlers.test = {
+            init: function (element, valueAccessor) { valueAccessor(); }
+        };
+        testNode.innerHTML = "<div data-bind='test: nonexistentValue'></div>";
+        expect(function () {
+            ko.applyBindings(null, testNode);
+        }).toThrowContaining("Unable to process binding \"test: function");
     });
 
     it('Should invoke registered handlers\'s init() then update() methods passing binding data', function () {
@@ -155,11 +172,9 @@ describe('Binding attribute syntax', function() {
         };
         ko.bindingHandlers.test2 = ko.bindingHandlers.test1;
         testNode.innerHTML = "<div data-bind='test1: true, test2: true'></div>"
-        var didThrow = false;
-
-        try { ko.applyBindings(null, testNode) }
-        catch(ex) { didThrow = true; expect(ex.message).toContain('Multiple bindings (test1 and test2) are trying to control descendant bindings of the same element.') }
-        expect(didThrow).toEqual(true);
+        expect(function () {
+            ko.applyBindings(null, testNode);
+        }).toThrowContaining("Multiple bindings (test1 and test2) are trying to control descendant bindings of the same element.");
     });
 
     it('Should use properties on the view model in preference to properties on the binding context', function() {
@@ -220,14 +235,9 @@ describe('Binding attribute syntax', function() {
 
     it('Should not be allowed to use containerless binding syntax for bindings other than whitelisted ones', function() {
         testNode.innerHTML = "Hello <!-- ko visible: false -->Some text<!-- /ko --> Goodbye"
-        var didThrow = false;
-        try {
+        expect(function () {
             ko.applyBindings(null, testNode);
-        } catch(ex) {
-            didThrow = true;
-            expect(ex.message).toEqual("The binding 'visible' cannot be used with virtual elements");
-        }
-        expect(didThrow).toEqual(true);
+        }).toThrow("The binding 'visible' cannot be used with virtual elements");
     });
 
     it('Should be able to set a custom binding to use containerless binding', function() {
@@ -356,6 +366,18 @@ describe('Binding attribute syntax', function() {
         expect(ko.contextFor(testNode.childNodes[1].childNodes[1]).$parentContext.customValue).toEqual('xyz');
     });
 
+    it('Should be able to use value-less binding in containerless binding', function() {
+        var initCalls = 0;
+        ko.bindingHandlers.test = { init: function () { initCalls++ } };
+        ko.virtualElements.allowedBindings['test'] = true;
+
+        testNode.innerHTML = "Hello <!-- ko test -->Some text<!-- /ko --> Goodbye";
+        ko.applyBindings(null, testNode);
+
+        expect(initCalls).toEqual(1);
+        expect(testNode).toContainText("Hello Some text Goodbye");
+    });
+
     it('Should not allow multiple applyBindings calls for the same element', function() {
         testNode.innerHTML = "<div data-bind='text: \"Some Text\"'></div>";
 
@@ -363,14 +385,9 @@ describe('Binding attribute syntax', function() {
         ko.applyBindings({}, testNode);
 
         // Second call throws an error
-        var didThrow = false;
-        try { ko.applyBindings({}, testNode); }
-        catch (ex) {
-            didThrow = true;
-            expect(ex.message).toEqual("You cannot apply bindings multiple times to the same element.");
-        }
-        if (!didThrow)
-            throw new Error("Did not prevent multiple applyBindings calls");
+        expect(function () {
+            ko.applyBindings({}, testNode);
+        }).toThrow("You cannot apply bindings multiple times to the same element.");
     });
 
     it('Should allow multiple applyBindings calls for the same element if cleanNode is used', function() {
@@ -408,6 +425,8 @@ describe('Binding attribute syntax', function() {
     });
 
     it('Should not bind against text content inside <script> tags', function() {
+        this.restoreAfter(ko.bindingProvider, 'instance');
+
         // Developers won't expect or want binding to mutate the contents of <script> tags.
         // Historically this wasn't a problem because the default binding provider only acts
         // on elements, but now custom providers can act on text contents of elements, it's
@@ -415,9 +434,17 @@ describe('Binding attribute syntax', function() {
 
         // First replace the binding provider with one that's hardcoded to replace all text
         // content with a special message, via a binding handler that operates on text nodes
+
         var originalBindingProvider = ko.bindingProvider.instance;
         ko.bindingProvider.instance = {
-            nodeHasBindings: function(node, bindingContext) {
+            nodeHasBindings: function(node) {
+                // IE < 9 can't bind text nodes, as expando properties are not allowed on them
+                // this will still prove that the binding provider was not executed on the children of a script tag
+                if (node.nodeType === 3 && jasmine.ieVersion < 9) {
+                    node.data = "replaced";
+                    return false;
+                }
+
                 return true;
             },
             getBindingAccessors: function(node, bindingContext) {
@@ -439,7 +466,5 @@ describe('Binding attribute syntax', function() {
         testNode.innerHTML = "<p>Hello</p><script>alert(123);</script><p>Goodbye</p>";
         ko.applyBindings({ sometext: 'hello' }, testNode);
         expect(testNode).toContainHtml('<p>replaced</p><script>alert(123);</script><p>replaced</p>');
-
-        ko.bindingProvider.instance = originalBindingProvider;
     });
 });

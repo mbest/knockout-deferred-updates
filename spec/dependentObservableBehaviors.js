@@ -286,46 +286,53 @@ describe('Dependent Observable', function() {
         expect(dependent.isActive()).toEqual(false);
     });
 
-    it('Should not dispose until the disposeWhen function returns false at least once', function () {
-        // This supports the pattern that an application might create and update a computed
-        // while its still being initialized. During initialization, disposeWhen might return true
-        // but this is ignored. Later, when the application is initialized, it will return false.
-        // Even later, the computed will actually be disposed if disposeWhen returns true.
-        var underlyingObservable = new ko.observable(100);
-        var timeToDispose = true;
-        var timesEvaluated = 0;
-        var computed = new ko.computed(
-            function () { timesEvaluated++; return underlyingObservable() + 1; },
-            null,
-            { disposeWhen: function () { return timeToDispose; } }
-        );
-        // computed is never disposed initially
-        expect(timesEvaluated).toEqual(1);
-        expect(computed.getDependenciesCount()).toEqual(1);
-        expect(computed.isActive()).toEqual(true);
+    it('Should dispose itself as soon as disposeWhen returns true, as long as it isn\'t waiting for a DOM node to be removed', function() {
+        var underlyingObservable = ko.observable(100),
+            dependent = ko.dependentObservable(
+                underlyingObservable,
+                null,
+                { disposeWhen: function() { return true; } }
+            );
 
-        // disposeWhen value is still true, to it won't be disposed
+        expect(underlyingObservable.getSubscriptionsCount()).toEqual(0);
+        expect(dependent.isActive()).toEqual(false);
+    });
+
+    it('Should delay disposal until after disposeWhen returns false if it is waiting for a DOM node to be removed', function() {
+        var underlyingObservable = ko.observable(100),
+            shouldDispose = true,
+            dependent = ko.dependentObservable(
+                underlyingObservable,
+                null,
+                { disposeWhen: function() { return shouldDispose; }, disposeWhenNodeIsRemoved: true }
+            );
+
+        // Even though disposeWhen returns true, it doesn't dispose yet, because it's
+        // expecting an initial 'false' result to indicate the DOM node is still in the document
+        expect(underlyingObservable.getSubscriptionsCount()).toEqual(1);
+        expect(dependent.isActive()).toEqual(true);
+
+
+        // disposeWhen value is still true, so it won't be disposed
         underlyingObservable(101);
         ko.processAllDeferredUpdates();
-        expect(timesEvaluated).toEqual(2);
-        expect(computed.getDependenciesCount()).toEqual(1);
-        expect(computed.isActive()).toEqual(true);
+        expect(dependent.getSubscriptionsCount()).toEqual(1);
+        expect(dependent.isActive()).toEqual(true);
 
-        // disposeWhen is false, so don't dispose
-        timeToDispose = false;
+        // Trigger the false result. Of course it still doesn't dispose yet, because
+        // disposeWhen says false.
+        shouldDispose = false;
         underlyingObservable(102);
         ko.processAllDeferredUpdates();
-        expect(timesEvaluated).toEqual(3);
-        expect(computed.getDependenciesCount()).toEqual(1);
-        expect(computed.isActive()).toEqual(true);
+        expect(underlyingObservable.getSubscriptionsCount()).toEqual(1);
+        expect(dependent.isActive()).toEqual(true);
 
-        // Back to true, now it will be disposed
-        timeToDispose = true;
+        // Now trigger a true result. This time it will dispose.
+        shouldDispose = true;
         underlyingObservable(103);
         ko.processAllDeferredUpdates();
-        expect(timesEvaluated).toEqual(3);
-        expect(computed.getDependenciesCount()).toEqual(0);
-        expect(computed.isActive()).toEqual(false);
+        expect(underlyingObservable.getSubscriptionsCount()).toEqual(0);
+        expect(dependent.isActive()).toEqual(false);
     });
 
     it('Should describe itself as active if the evaluator has dependencies on its first run', function() {
@@ -460,15 +467,12 @@ describe('Dependent Observable', function() {
         // Initially the computed value is true (executed sucessfully -> same value as observable)
         expect(computed()).toEqual(true);
 
-        var didThrow = false;
-        try {
+        expect(function () {
             // Update observable to cause computed to throw an exception
             observable(false);
             computed();     // Evaluate to force update
-        } catch(e) {
-            didThrow = true;
-        }
-        expect(didThrow).toEqual(true);
+        }).toThrow();
+
         // The value of the computed is now undefined, although currently it keeps the previous value
         expect(computed()).toEqual(true);
 
@@ -519,7 +523,7 @@ describe('Dependent Observable', function() {
         expect(computed()).toEqual("C");
     });
 
-    it('Should expose a "notify" extender that can configure a computed to notify only when its value is changed', function() {
+    it('Should expose a "notify" extender that can configure a computed to notify on all changes', function() {
         var notifiedValues = [];
         var observable = new ko.observable(1);
         var computed = new ko.computed(function () { return observable(); });
@@ -528,16 +532,16 @@ describe('Dependent Observable', function() {
         ko.processAllDeferredUpdates();
         expect(notifiedValues).toEqual([]);
 
-        // Trigger update without changing value; the computed will notify the change (default behavior)
+        // Trigger update without changing value; the computed will not notify the change (default behavior)
+        observable.valueHasMutated();
+        ko.processAllDeferredUpdates();
+        expect(notifiedValues).toEqual([]);
+
+        // Set the computed to notify always
+        computed.extend({ notify: 'always' });
         observable.valueHasMutated();
         ko.processAllDeferredUpdates();
         expect(notifiedValues).toEqual([1]);
-
-        // Set the computed to notify only if the value changes
-        computed.extend({ notify: 'notalways' });    // presently the value doesn't matter except it can't be 'always'
-        observable.valueHasMutated();
-        ko.processAllDeferredUpdates();
-        expect(notifiedValues).toEqual([1]); // no new notification
     });
 
     // Borrowed from haberman/knockout (see knockout/knockout#359)
@@ -546,14 +550,14 @@ describe('Dependent Observable', function() {
         var first = ko.observable(0);
         var last = first;
         for (var i = 0; i < depth; i++) {
-           (function() {
-               var l = last;
-               last = ko.computed(function() { return l() + 1; });
-           })();
+            (function() {
+                var l = last;
+                last = ko.computed(function() { return l() + 1; });
+            })();
         }
         var all = ko.computed(function() { return last() + first(); });
         first(1);
         ko.processAllDeferredUpdates();
         expect(all()).toEqual(depth+2);
-     });
+    });
 });

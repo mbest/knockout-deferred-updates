@@ -1,10 +1,9 @@
 
 describe('Mapping helpers', function() {
     it('ko.toJS should require a parameter', function() {
-        var didThrow = false;
-        try { ko.toJS() }
-        catch(ex) { didThow = true }
-        expect(didThow).toEqual(true);
+        expect(function () {
+            ko.toJS();
+        }).toThrow();
     });
 
     it('ko.toJS should unwrap observable values', function() {
@@ -110,6 +109,21 @@ describe('Mapping helpers', function() {
         expect(parsedResult[0]).toEqual('a');
         expect(parsedResult[1]).toEqual(1);
         expect(parsedResult[2].someProp).toEqual('Hey');
+    });
+
+    it('ko.toJSON should respect .toJSON functions on objects', function() {
+        var data = {
+            a: { one: "one", two: "two"},
+            b: ko.observable({ one: "one", two: "two" })
+        };
+        data.a.toJSON = function() { return "a-mapped" };
+        data.b().toJSON = function() { return "b-mapped" };
+        var result = ko.toJSON(data);
+
+        // Check via parsing so the specs are independent of browser-specific JSON string formatting
+        expect(typeof result).toEqual("string");
+        var parsedResult = ko.utils.parseJson(result);
+        expect(parsedResult).toEqual({ a: "a-mapped", b: "b-mapped" });
     });
 
     it('ko.toJSON should respect .toJSON functions on arrays', function() {

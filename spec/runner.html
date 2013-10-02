@@ -23,7 +23,7 @@
         <script type="text/javascript" src="lib/json2.js"></script>
 
         <!-- knockout -->
-        <script type="text/javascript" src="lib/knockout-3.0.0beta.js"></script>
+        <script type="text/javascript" src="lib/knockout-3.0.0rc.js"></script>
         <script type="text/javascript">ko.processAllDeferredUpdates = ko.processAllDeferredBindingUpdates = function(){}</script>
 	<!--<script type="text/javascript" src="lib/setImmediate.js"></script>-->
         <script type="text/javascript" src="../knockout-deferred-updates.js"></script>
@@ -37,6 +37,7 @@
         <script type="text/javascript" src="subscribableBehaviors.js"></script>
         <script type="text/javascript" src="observableBehaviors.js"></script>
         <script type="text/javascript" src="observableArrayBehaviors.js"></script>
+        <script type="text/javascript" src="observableArrayChangeTrackingBehaviors.js"></script>
         <script type="text/javascript" src="dependentObservableBehaviors.js"></script>
         <script type="text/javascript" src="dependentObservableDomBehaviors.js"></script>
         <script type="text/javascript" src="extenderBehaviors.js"></script>
@@ -84,7 +85,9 @@
             jasmineEnv.addReporter(htmlReporter);
             jasmineEnv.specFilter = htmlReporter.specFilter;
 
-            jasmineEnv.addReporter(new jasmine.TapReporter()); // For Testling CI
+            var testlingParam = /[?&]testling=true/.test(location.href);
+            if (testlingParam)
+                jasmineEnv.addReporter(new jasmine.TapReporter()); // For Testling CI
             jasmineEnv.execute();
           })();
         </script>

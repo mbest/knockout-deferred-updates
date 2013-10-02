@@ -210,7 +210,7 @@ function findSubObjectWithProperty(obj, prop) {
 // Find ko.dependencyDetection and its methods
 var depDet = findSubObjectWithProperty(ko, 'end'),
     depDetIgnoreName = findNameMethodSignatureContaining(depDet, '.apply(') || 'ignore',
-    depDetBeginName = findNameMethodSignatureContaining(depDet, '.push({'),
+    depDetBeginName = findNameMethodSignatureContaining(depDet, ':[]'),
     depDetRegisterName = findNameMethodSignatureContaining(depDet, '.length');
 
 // Find hidden properties and methods of ko.computed and its returned values
@@ -230,14 +230,14 @@ var oldComputed = ko.computed,
 // Find hidden names for disposeWhenNodeIsRemoved and disposeWhen by examining the function source
 if (hasWriteFunctionName != 'hasWriteFunction') {
     var oldComputedStr = oldComputed.toString(), match1, match2;
-    if (match1 = oldComputedStr.match(/.\.disposeWhenNodeIsRemoved\|\|.\.([^|]+)\|\|/))
+    if (match1 = oldComputedStr.match(/.\.disposeWhenNodeIsRemoved\s*\|\|\s*.\.([^|\s,]+)/))
         disposeWhenNodeIsRemovedName = match1[1];
-    if (match2 = oldComputedStr.match(/.\.disposeWhen\|\|.\.([^|]+)\|\|/))
+    if (match2 = oldComputedStr.match(/.\.disposeWhen\s*\|\|\s*.\.([^|\s,]+)/))
         disposeWhenName = match2[1];
 }
 
 // Find ko.utils.domNodeIsAttachedToDocument
-var nodeInDocName = findNameMethodSignatureContaining(ko.utils, 'ocument)');
+var nodeInDocName = findNameMethodSignatureContaining(ko.utils, 'documentElement)') || findNameMethodSignatureContaining(ko.utils, 'ocument)');
 
 // Find the name of the ko.subscribable.fn.subscribe function
 var subFnObj = ko.subscribable.fn,
@@ -387,7 +387,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         _possiblyNeedsEvaluation = false,
         _needsEvaluation = true,
         _dontEvaluate = false,
-        _canDispose = false,
+        _suppressDisposalUntilDisposeWhenReturnsFalse = false,
         readFunction = evaluatorFunctionOrOptions;
 
     if (readFunction && typeof readFunction == 'object') {
@@ -477,20 +477,28 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         return result;
     }
 
+    function isDisposed() {
+        if (disposeWhen && disposeWhen()) {
+            // See comment below about _suppressDisposalUntilDisposeWhenReturnsFalse
+            if (!_suppressDisposalUntilDisposeWhenReturnsFalse) {
+                dispose();
+                _needsEvaluation = false;
+                return true;
+            }
+        } else {
+            // It just did return false, so we can stop suppressing now
+            _suppressDisposalUntilDisposeWhenReturnsFalse = false;
+        }
+    }
+
     function evaluateImmediate(force) {
         if (_dontEvaluate || (!_needsEvaluation && !(force === true))) {    // test for exact *true* value since Firefox will pass an integer value when this function is called through setTimeout
             _possiblyNeedsEvaluation = _needsEvaluation;
             return;
         }
 
-        // disposeWhen won't be set until after initial evaluation
-        if (disposeWhen) {
-            if (!disposeWhen()) {
-                _canDispose = true;
-            } else if (_canDispose) {
-                dependentObservable.dispose();
-                return;
-            }
+        if (isDisposed()) {
+            return;
         }
 
         _dontEvaluate = true;
@@ -600,31 +608,43 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         }
     }
 
-    // Need to set disposeWhenNodeIsRemoved here in case we get a notification during the initial evaluation
-    var disposeWhenNodeIsRemoved = options[disposeWhenNodeIsRemovedName] || options.disposeWhenNodeIsRemoved || null;
+    var disposeWhenNodeIsRemoved = options[disposeWhenNodeIsRemovedName] || options.disposeWhenNodeIsRemoved || null,
+        disposeWhenOption = options[disposeWhenName] || options.disposeWhen,
+        disposeWhen = disposeWhenOption,
+        dispose = disposeAllSubscriptionsToDependencies;
 
-    if (options.deferEvaluation !== true)
+    // Add a "disposeWhen" callback that, on each evaluation, disposes if the node was removed without using ko.removeNode.
+    if (disposeWhenNodeIsRemoved) {
+        // Since this computed is associated with a DOM node, and we don't want to dispose the computed
+        // until the DOM node is *removed* from the document (as opposed to never having been in the document),
+        // we'll prevent disposal until "disposeWhen" first returns false.
+        _suppressDisposalUntilDisposeWhenReturnsFalse = true;
+
+        // Only watch for the node's disposal if the value really is a node. It might not be,
+        // e.g., { disposeWhenNodeIsRemoved: true } can be used to opt into the "only dispose
+        // after first false result" behaviour even if there's no specific node to watch. This
+        // technique is intended for KO's internal use only and shouldn't be documented or used
+        // by application code, as it's likely to change in a future version of KO.
+        if (disposeWhenNodeIsRemoved.nodeType) {
+            disposeWhen = function () {
+                return !ko.utils[nodeInDocName](disposeWhenNodeIsRemoved) || (disposeWhenOption && disposeWhenOption());
+            };
+        }
+    }
+
+    // Evaluate, unless deferEvaluation is true
+    if (!isDisposed() && options.deferEvaluation !== true)
         evaluateInitial();
 
-    var dispose = disposeAllSubscriptionsToDependencies;
-
-    // Build 'disposeWhenNodeIsRemoved' and 'disposeWhenNodeIsRemovedCallback' option values.
-    // But skip if isActive is false (there will never be any dependencies to dispose).
-    // (Note: 'disposeWhenNodeIsRemoved' option both proactively disposes as soon as the node is removed using ko.removeNode(),
-    // plus adds a 'disposeWhen' callback that, on each evaluation, disposes if the node was removed by some other means.)
-    var disposeWhen = options[disposeWhenName] || options.disposeWhen || function() { return false; };
+    // Attach a DOM node disposal callback so that the computed will be proactively disposed as soon as the node is
+    // removed using ko.removeNode. But skip if isActive is false (there will never be any dependencies to dispose).
     if (disposeWhenNodeIsRemoved && isActive()) {
         dispose = function() {
             ko.utils.domNodeDisposal.removeDisposeCallback(disposeWhenNodeIsRemoved, dispose);
             disposeAllSubscriptionsToDependencies();
         };
         ko.utils.domNodeDisposal.addDisposeCallback(disposeWhenNodeIsRemoved, dispose);
-        var existingDisposeWhenFunction = disposeWhen;
-        disposeWhen = function () {
-            return !ko.utils[nodeInDocName](disposeWhenNodeIsRemoved) || existingDisposeWhenFunction();
-        }
     }
-    _canDispose = !disposeWhen();
 
     // Set properties of returned function
     ko.subscribable.call(dependentObservable);
