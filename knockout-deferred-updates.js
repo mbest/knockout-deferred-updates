@@ -188,7 +188,7 @@ if (!ko.utils.objectMap) {
 // Helper functions for sniffing the minified Knockout code
 function findNameMethodSignatureContaining(obj, match) {
     for (var a in obj)
-        if (obj.hasOwnProperty(a) && obj[a].toString().indexOf(match) >= 0)
+        if (obj.hasOwnProperty(a) && obj[a] && obj[a].toString().indexOf(match) >= 0)
             return a;
 }
 function findPropertyName(obj, equals) {
