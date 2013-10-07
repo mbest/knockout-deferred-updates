@@ -312,11 +312,10 @@ describe('Dependent Observable', function() {
         expect(underlyingObservable.getSubscriptionsCount()).toEqual(1);
         expect(dependent.isActive()).toEqual(true);
 
-
         // disposeWhen value is still true, so it won't be disposed
         underlyingObservable(101);
         ko.processAllDeferredUpdates();
-        expect(dependent.getSubscriptionsCount()).toEqual(1);
+        expect(underlyingObservable.getSubscriptionsCount()).toEqual(1);
         expect(dependent.isActive()).toEqual(true);
 
         // Trigger the false result. Of course it still doesn't dispose yet, because
