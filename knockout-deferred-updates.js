@@ -17,9 +17,10 @@
         factory(ko);
     }
 }
-(function(ko, undefined) {
+(function(ko) {
 
-var g = typeof global === "object" && global ? global : window;
+var g = typeof global === "object" && global ? global : window,
+    undefined = void 0;
 
 /*
  * Task manager for deferred tasks
@@ -118,6 +119,10 @@ ko.tasks = (function() {
         },
 
         processDelayed: function(evaluator, distinct, options) {
+            if (arguments.length == 2 && typeof distinct == 'object' ) {
+                options = distinct;
+                distinct = options.distinct;
+            }
             var foundDup = (distinct || distinct === undefined) && clearDuplicate(evaluator);
 
             var item = options || {};
@@ -304,7 +309,7 @@ subFnObj[subFnName] = function (callback, callbackTarget, event, deferUpdates, c
         } else {
             newCallback = function(valueToNotify) {
                 if ((newComputed.deferUpdates && subscription.deferUpdates !== false) || subscription.deferUpdates)
-                    ko.tasks.processDelayed(boundCallback, true, {args: [valueToNotify]});
+                    ko.tasks.processDelayed(boundCallback, {args: [valueToNotify]});
                 else
                     boundCallback(valueToNotify);
             };
@@ -336,19 +341,15 @@ subFnObj.notifySubscribers = function (valueToNotify, event) {
                 notifyQueue = [];
                 oldnotifySubscribers.call(this, valueToNotify, event);
                 if (notifyQueue.length) {
-                    for (var i = 0, n; n = notifyQueue[i]; i++) {
-                        oldnotifySubscribers.call(n.object, n.value, n.event);
+                    for (var i = 0, notifyArgs; notifyArgs = notifyQueue[i]; i++) {
+                        Function.prototype.call.apply(oldnotifySubscribers, notifyArgs);
                     }
                 }
             } finally {
                 notifyQueue = null;
             }
         } else {
-            notifyQueue.push({
-                object: this,
-                value: valueToNotify,
-                event: event
-            });
+            notifyQueue.push([this, valueToNotify, event]);
         }
     } else {
         oldnotifySubscribers.call(this, valueToNotify, event);
@@ -435,7 +436,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
             clearTimeout(evaluationTimeoutInstance);
             evaluationTimeoutInstance = ko.evaluateAsynchronously(evaluateImmediate, throttleEvaluationTimeout);
         } else if ((newComputed.deferUpdates && dependentObservable.deferUpdates !== false) || dependentObservable.deferUpdates)
-            shouldNotify = ko.tasks.processDelayed(evaluateImmediate, true, {node: disposeWhenNodeIsRemoved});
+            shouldNotify = ko.tasks.processDelayed(evaluateImmediate, {node: disposeWhenNodeIsRemoved});
         else if (_needsEvaluation) {
             evaluateImmediate();
             shouldNotify = false;
