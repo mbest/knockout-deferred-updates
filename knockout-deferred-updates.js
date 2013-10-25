@@ -2,7 +2,7 @@
  * @license Deferred Updates plugin for Knockout http://knockoutjs.com/
  * (c) Michael Best, Steven Sanderson
  * License: MIT (http://www.opensource.org/licenses/mit-license.php)
- * Version 2.3.1
+ * Version 3.0.0
  */
 
 (function(factory) {

@@ -1,8 +1,8 @@
 {
   "name": "knockout-deferred-updates",
   "description": "Deferred Updates plugin for Knockout",
-  "url": "http://mbest.github.io/knockout-deferred-updates/",
-  "version": "2.1.0",
+  "homepage": "http://mbest.github.io/knockout-deferred-updates/",
+  "version": "3.0.0",
   "license": "MIT",
   "author": "Michael Best",
   "main": "knockout-deferred-updates.js",
@@ -12,6 +12,6 @@
   },
   "bugs": "https://github.com/mbest/knockout-deferred-updates/issues",
   "dependencies": {
-    "knockout": ">=2.2.0"
+    "knockout": ">=3.0.0"
   }
 }
