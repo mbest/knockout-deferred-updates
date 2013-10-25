@@ -1,4 +1,4 @@
-// Knockout JavaScript library v3.0.0rc
+// Knockout JavaScript library v3.0.0
 // (c) Steven Sanderson - http://knockoutjs.com/
 // License: MIT (http://www.opensource.org/licenses/mit-license.php)
 
@@ -44,7 +44,7 @@ ko.exportSymbol = function(koPath, object) {
 ko.exportProperty = function(owner, publicName, object) {
   owner[publicName] = object;
 };
-ko.version = "3.0.0rc";
+ko.version = "3.0.0";
 
 ko.exportSymbol('version', ko.version);
 ko.utils = (function () {
@@ -317,6 +317,8 @@ ko.utils = (function () {
         domNodeIsContainedBy: function (node, containedByNode) {
             if (node === containedByNode)
                 return true;
+            if (node.nodeType === 11)
+                return false; // Fixes issue #1162 - can't use node.contains for document fragments on IE8
             if (containedByNode.contains)
                 return containedByNode.contains(node.nodeType === 3 ? node.parentNode : node);
             if (containedByNode.compareDocumentPosition)
@@ -1311,7 +1313,9 @@ ko.extenders['trackArrayChanges'] = function(target) {
             // Compute the diff and issue notifications, but only if someone is listening
             if (target.hasSubscriptionsForEvent(arrayChangeEventName)) {
                 var changes = getChanges(previousContents, currentContents);
-                target['notifySubscribers'](changes, arrayChangeEventName);
+                if (changes.length) {
+                    target['notifySubscribers'](changes, arrayChangeEventName);
+                }
             }
 
             // Eliminate references to the old, removed items, so they can be GCed
@@ -1656,8 +1660,7 @@ ko.exportSymbol('isComputed', ko.isComputed);
                 visitorCallback('toJSON');
         } else {
             for (var propertyName in rootObject) {
-                if (propertyName === 'toJSON' || typeof rootObject[propertyName] !== 'function' || ko.isObservable(rootObject[propertyName]))
-                    visitorCallback(propertyName);
+                visitorCallback(propertyName);
             }
         }
     };

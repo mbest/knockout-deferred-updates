@@ -106,7 +106,7 @@ describe('Observable Array change tracking', function() {
 
             // Pop empty array
             testKnownOperation(ko.observableArray([]), 'pop', {
-                args: [], result: [], changes: []
+                args: [], result: [], changes: undefined
             });
 
             // Shift
@@ -120,7 +120,7 @@ describe('Observable Array change tracking', function() {
 
             // Shift empty array
             testKnownOperation(ko.observableArray([]), 'shift', {
-                args: [], result: [], changes: []
+                args: [], result: [], changes: undefined
             });
 
             // Unshift
@@ -309,7 +309,8 @@ describe('Observable Array change tracking', function() {
 
         // The ordering of added/deleted items for replaced entries isn't defined, so
         // we'll sort by index and then status just so the tests can get consistent results
-        changeList.sort(compareChangeListItems);
+        if (changeList && changeList.sort)
+            changeList.sort(compareChangeListItems);
         expect(changeList).toEqual(options.changes);
     }
 
