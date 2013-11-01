@@ -87,6 +87,8 @@ In addition to adding *deferred updates*, this plugin includes the following cha
 
 7. The dependency detection system assigns ids to observables and uses objects to track distinct dependencies. This improves performance especially for computed observables with a lot of dependencies and in older browsers that don’t have an efficient `inArray` function. The idea for this change came from @coderenaissance and @sciolizer.
 
+License: MIT (http://www.opensource.org/licenses/mit-license.php)
+
 Michael Best<br>
 https://github.com/mbest/<br>
 mbest@dasya.com
