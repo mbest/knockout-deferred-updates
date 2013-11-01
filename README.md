@@ -40,13 +40,13 @@ var myComputed = ko.computed(function () {...}).extend({ deferred:false });
 
 By default, deferred updates occur in a `setTimeout` callback. But you can make updates happen earlier:
 
-   * *Access a computed observable to update it.* A computed observable whose dependencies have changed is marked as *stale* until it is updated. Accessing a *stale* computed observable will cause it to update first.
+* *Access a computed observable to update it.* A computed observable whose dependencies have changed is marked as *stale* until it is updated. Accessing a *stale* computed observable will cause it to update first.
 
-   * *Use `ko.tasks.processImmediate` to wrap data changes.* Before it returns, `processImmediate` performs any deferred updates that were triggered by the data changes. (See *Scheduling tasks* below.)
+* *Use `ko.tasks.processImmediate` to wrap data changes.* Before it returns, `processImmediate` performs any deferred updates that were triggered by the data changes. (See *Scheduling tasks* below.)
 
-   * *Use `ko.processAllDeferredBindingUpdates` to update bindings.* This plugin also defers UI updates since they use the same update system. If you have code that accesses the DOM directly and you’ve made data changes that will trigger a UI update, you’ll want to update the UI first. (See *Notes* below.)
+* *Use `ko.processAllDeferredBindingUpdates` to update bindings.* This plugin also defers UI updates since they use the same update system. If you have code that accesses the DOM directly and you’ve made data changes that will trigger a UI update, you’ll want to update the UI first. (See *Notes* below.)
 
-   * *Include `setImmediate` for faster updates.* This plugin will use [setImmediate](https://github.com/NobleJS/setImmediate), if available, which enables updates to run without the minimum delay enforced by `setTimeout` (4 ms on modern browsers, 10-15 ms on older browsers).
+* *Include `setImmediate` for faster updates.* This plugin will use [setImmediate](https://github.com/NobleJS/setImmediate), if available, which enables updates to run without the minimum delay enforced by `setTimeout` (4 ms on modern browsers, 10-15 ms on older browsers).
 
 #### Scheduling tasks
 
