@@ -40,9 +40,9 @@ describe("Throttled dependent observables", function() {
     beforeEach(function() { waits(1); }); // Workaround for spurious timing-related failures on IE8 (issue #736)
 
     it("Should notify subscribers asynchronously after dependencies stop updating for the specified timeout duration", function() {
-        var underlying = ko.observable(), lastUpdateValue;
+        var underlying = ko.observable();
         var asyncDepObs = ko.dependentObservable(function() {
-            return lastUpdateValue = underlying();
+            return underlying();
         }).extend({ throttle: 100 });
         var notifiedValues = [];
         asyncDepObs.subscribe(function(value) {
@@ -58,11 +58,11 @@ describe("Throttled dependent observables", function() {
 
 
         // Check initial state
-        expect(lastUpdateValue).toBeUndefined();
+        expect(asyncDepObs.peek()).toBeUndefined();
         runs(function() {
             // Mutate
             underlying('New value');
-            expect(lastUpdateValue).toBeUndefined(); // Should not update synchronously
+            expect(asyncDepObs.peek()).toBeUndefined(); // Should not update synchronously
             expect(notifiedValues.length).toEqual(0);
         	expect(computedNotifiedValues.length).toEqual(0);
         });
@@ -70,7 +70,7 @@ describe("Throttled dependent observables", function() {
         // Still shouldn't have evaluated
         waits(10);
         runs(function() {
-            expect(lastUpdateValue).toBeUndefined(); // Should not update until throttle timeout
+            expect(asyncDepObs.peek()).toBeUndefined(); // Should not update until throttle timeout
             expect(notifiedValues.length).toEqual(0);
         	expect(computedNotifiedValues.length).toEqual(0);
         });
@@ -80,7 +80,7 @@ describe("Throttled dependent observables", function() {
             return notifiedValues.length > 0;
         }, 300);
         runs(function() {
-            expect(lastUpdateValue).toEqual('New value');
+            expect(asyncDepObs.peek()).toEqual('New value');
             expect(notifiedValues.length).toEqual(1);
             expect(notifiedValues[0]).toEqual('New value');
         	expect(computedNotifiedValues.length).toEqual(1);

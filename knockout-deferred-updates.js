@@ -249,9 +249,11 @@ var subFnObj = ko.subscribable.fn,
     subFnName = findNameMethodSignatureContaining(subFnObj, '.bind(');
 
 // Find the name of ko.subscription.dispose
-var subscription = new ko.subscribable().subscribe(),
+var dummySubFunc = function() {},
+    subscription = new ko.subscribable().subscribe(dummySubFunc),
     oldSubDispose = subscription.dispose,
     subscriptionProto = subscription.constructor.prototype,
+    subCallbackName = findPropertyName(subscription, dummySubFunc),
     subDisposeName = findPropertyName(subscriptionProto, oldSubDispose);
 subscription.dispose();
 subscription = null;
@@ -298,38 +300,37 @@ ko.ignoreDependencies = depDet[depDetIgnoreName] = function(callback, callbackTa
  */
 var oldSubscribe = subFnObj[subFnName];    // Save old subscribe function
 subFnObj[subFnName] = function (callback, callbackTarget, event, deferUpdates, computed) {
-    event = event || 'change';
-    var newCallback;
-    if (!computed) {
-        var boundCallback = function(valueToNotify) {
-            callback.call(callbackTarget, valueToNotify, event);
-        };
-        if (event != 'change') {
-            newCallback = boundCallback;
-        } else {
-            newCallback = function(valueToNotify) {
-                if ((newComputed.deferUpdates && subscription.deferUpdates !== false) || subscription.deferUpdates)
-                    ko.tasks.processDelayed(boundCallback, {args: [valueToNotify]});
-                else
-                    boundCallback(valueToNotify);
-            };
-        }
-    } else {
+    event || (event = 'change');
+    var changeEvent = (event == 'change');
+    var newCallback = callback;
+    if (computed) {
         newCallback = function(valueToNotify) {
             callback(valueToNotify, event);
         };
-        if (event == 'change') {
+        if (changeEvent) {
             this.dependents = this.dependents || [];
             this.dependents.push(computed);
         }
     }
-    var subscription = oldSubscribe.call(this, newCallback, null, event);
+    var subscription = oldSubscribe.call(this, newCallback, callbackTarget, event);
     subscription.target = this;
     subscription.event = event;
     subscription.dependent = computed;
     subscription.deferUpdates = deferUpdates;
+
+    if (changeEvent && !computed) {
+        subscription.limit(this._limitFunction || function(limitCallback) {
+            return function () {
+                if ((newComputed.deferUpdates && subscription.deferUpdates !== false) || subscription.deferUpdates)
+                    ko.tasks.processDelayed(limitCallback);
+                else
+                    limitCallback();
+            };
+        });
+    }
+
     return subscription;
-}
+};
 /*
  * Replace ko.subscribable.fn.notifySubscribers with one where dirty and change notifications are deferred
  */
@@ -358,13 +359,40 @@ subFnObj.notifySubscribers = function (valueToNotify, event) {
 // Provide a method to return a list of dependents (computed observables that depend on the subscribable)
 subFnObj.getDependents = function() {
     return this.dependents ? [].concat(this.dependents) : [];
-}
+};
+subFnObj.limit = function(limitFunction) {
+    this._limitFunction = limitFunction;
+};
+subFnObj.isDifferent = function(oldValue, newValue) {
+    return !this.equalityComparer || !this.equalityComparer(oldValue, newValue);
+};
+
 // Update dispose function to clean up pointers to dependents
 subscriptionProto[subDisposeName] = function() {
     oldSubDispose.call(this);
+    this.isDisposed = true;
     if (this.dependent && this.event == 'change')
         ko.utils.arrayRemoveItem(this.target.dependents, this.dependent);
-}
+};
+// Limit notifications for this subscription using the provided limitFunction (which includes the limit algorithm)
+subscriptionProto.limit = function (limitFunction) {
+    var self = this,
+        target = self.target,
+        originalCallback = self[subCallbackName],
+        notifiedValue = target.peek ? target.peek() : undefined,
+        pendingValue;
+
+    var finish = limitFunction(function () {
+        if (!self.isDisposed && target.isDifferent(notifiedValue, pendingValue)) {
+            originalCallback(notifiedValue = pendingValue);
+        }
+    });
+
+    self[subCallbackName] = function(value) {
+        pendingValue = value;
+        finish(target, value);
+    };
+};
 
 // Helper function for subscribing to two events for computed observables.
 // This returns a single "subscription" object to simplify the computed code.
@@ -431,10 +459,8 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
             _possiblyNeedsEvaluation = true;
         else
             _needsEvaluation = true;
-        var throttleEvaluationTimeout = dependentObservable.throttleEvaluation;
-        if (throttleEvaluationTimeout && throttleEvaluationTimeout >= 0) {
-            clearTimeout(evaluationTimeoutInstance);
-            evaluationTimeoutInstance = ko.evaluateAsynchronously(evaluateImmediate, throttleEvaluationTimeout);
+        if (dependentObservable._evalThrottled) {
+            dependentObservable._evalThrottled();
         } else if ((newComputed.deferUpdates && dependentObservable.deferUpdates !== false) || dependentObservable.deferUpdates)
             shouldNotify = ko.tasks.processDelayed(evaluateImmediate, {node: disposeWhenNodeIsRemoved});
         else if (_needsEvaluation) {
@@ -444,8 +470,6 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
 
         if (shouldNotify && dependentObservable.notifySubscribers) {     // notifySubscribers won't exist on first evaluation (but there won't be any subscribers anyway)
             dependentObservable.notifySubscribers(_latestValue, 'dirty');
-            if (!_possiblyNeedsEvaluation && throttleEvaluationTimeout)  // The notification might have triggered an evaluation
-                clearTimeout(evaluationTimeoutInstance);
         }
     }
 
@@ -531,12 +555,14 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
 
             _possiblyNeedsEvaluation = _needsEvaluation = false;
 
-            if (!dependentObservable.equalityComparer || !dependentObservable.equalityComparer(_latestValue, newValue)) {
+            if (dependentObservable.isDifferent(_latestValue, newValue)) {
                 dependentObservable.notifySubscribers(_latestValue, 'beforeChange');
 
                 _latestValue = newValue;
                 dependentObservable._latestValue = _latestValue;
-                dependentObservable.notifySubscribers(_latestValue);
+                if (!dependentObservable._evalThrottled) {
+                    dependentObservable.notifySubscribers(_latestValue);
+                }
             }
         } finally {
             depDet.end();
@@ -586,7 +612,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     }
 
     function peek() {
-        if (_needsEvaluation || _possiblyNeedsEvaluation)
+        if ((_needsEvaluation || _possiblyNeedsEvaluation) && !_dependenciesCount)
             evaluateImmediate(true);
         return _latestValue;
     }
@@ -651,6 +677,25 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     ko.subscribable.call(dependentObservable);
     ko.utils.extend(dependentObservable, newComputed.fn);
 
+    // Replace the throttle function with one that delays evaluation as well.
+    dependentObservable.limit = function(limitFunction) {
+        var isPending, previousValue;
+        var finish = limitFunction(function() {
+            isPending = false;
+            if (dependentObservable.isDifferent(previousValue, dependentObservable())) {
+                dependentObservable.notifySubscribers(_latestValue);
+            }
+        });
+        dependentObservable._evalThrottled = function() {
+            if (!isPending) {
+                isPending = true;
+                previousValue = peek();
+            }
+            _needsEvaluation = true;   // mark as dirty
+            finish(dependentObservable);
+        };
+    };
+
     dependentObservable[peekName] = dependentObservable.peek = peek;
     dependentObservable[getDependenciesCountName] = dependentObservable.getDependenciesCount = function () { return _dependenciesCount; };
     dependentObservable[hasWriteFunctionName] = dependentObservable.hasWriteFunction = typeof writeFunction === 'function';
@@ -678,27 +723,28 @@ oldComputed = computedProto = null;
  * New throttle extender
  */
 ko.extenders.throttle = function(target, timeout) {
-    // Throttling means two things:
-
-    if (ko.isWriteableObservable(target)) {
-        // (1) For writable targets (observables, or writable dependent observables), we throttle *writes*
-        //     so the target cannot change value synchronously or faster than a certain rate
-        var writeTimeoutInstance = null;
-        return ko.computed({
-            read: target,
-            write: function(value) {
-                clearTimeout(writeTimeoutInstance);
-                writeTimeoutInstance = ko.evaluateAsynchronously(function() {
-                    target(value);
+    target.limit(function (callback) {
+        var timeoutInstance;
+        return function () {
+            if (!timeoutInstance) {
+                timeoutInstance = ko.evaluateAsynchronously(function() {
+                    timeoutInstance = undefined;
+                    callback();
                 }, timeout);
             }
-        });
-    } else {
-        // (2) For dependent observables, we throttle *evaluations* so that, no matter how fast its dependencies
-        //     notify updates, the target doesn't re-evaluate (and hence doesn't notify) faster than a certain rate
-        target.throttleEvaluation = timeout;
-        return target;
-    }
+        };
+    });
+    return target;
+};
+ko.extenders.debounce = function(target, timeout) {
+    target.limit(function (callback) {
+        var timeoutInstance;
+        return function () {
+            clearTimeout(timeoutInstance);
+            timeoutInstance = ko.evaluateAsynchronously(callback, timeout);
+        };
+    });
+    return target;
 };
 
 /*
@@ -706,6 +752,7 @@ ko.extenders.throttle = function(target, timeout) {
  */
 ko.extenders.deferred = function(target, value) {
     target.deferUpdates = value;
+    return target;
 };
 
 return ko;

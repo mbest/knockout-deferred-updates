@@ -44,7 +44,7 @@ describe('Subscribable', function() {
     });
 
     /* Currently fails with deferred updates; I'm not sure if this is worth fixing */
-    xit('Should not notify subscribers after unsubscription, even if the unsubscription occurs midway through a notification cycle', function() {
+    it('Should not notify subscribers after unsubscription, even if the unsubscription occurs midway through a notification cycle', function() {
         // This spec represents the unusual case where during notification, subscription1's callback causes subscription2 to be disposed.
         // Since subscription2 was still active at the start of the cycle, it is scheduled to be notified. This spec verifies that
         // even though it is scheduled to be notified, it does not get notified, because the unsubscription just happened.
@@ -117,5 +117,57 @@ describe('Subscribable', function() {
         expect(interceptedNotifications.length).toEqual(1);
         expect(interceptedNotifications[0].eventName).toEqual("myEvent");
         expect(interceptedNotifications[0].value).toEqual(123);
+    });
+
+    it('Should delay change notifications if throttled', function() {
+        jasmine.Clock.useMock();
+
+        var subscribable = new ko.subscribable().extend({throttle:500});
+        var notifySpy = jasmine.createSpy('notifySpy');
+        subscribable.subscribe(notifySpy);
+        subscribable.subscribe(notifySpy, null, 'custom');
+
+        // "change" notification is delayed
+        subscribable.notifySubscribers('a', "change");
+        expect(notifySpy).not.toHaveBeenCalled();
+
+        // Default notification is delayed
+        subscribable.notifySubscribers('b');
+        expect(notifySpy).not.toHaveBeenCalled();
+
+        // Other notifications happen immediately
+        subscribable.notifySubscribers('c', "custom");
+        expect(notifySpy).toHaveBeenCalledWith('c');
+
+        // Advance clock; Change notification happens now using the latest value notified
+        jasmine.Clock.tick(501);
+        expect(notifySpy).toHaveBeenCalledWith('b');
+    });
+
+    it('Should delay notifications if subscription is throttled', function() {
+        jasmine.Clock.useMock();
+
+        var subscribable = new ko.subscribable();
+        // First subscription is throttled
+        var notifySpy1 = jasmine.createSpy('notifySpy1');
+        var subscription1 = subscribable.subscribe(notifySpy1, null, 'custom');
+        ko.extenders.throttle(subscription1, 500);
+        // Second isn't
+        var notifySpy2 = jasmine.createSpy('notifySpy2');
+        var subscription2 = subscribable.subscribe(notifySpy2, null, 'custom');
+
+        subscribable.notifySubscribers('a', 'custom');
+        expect(notifySpy1).not.toHaveBeenCalled();
+        expect(notifySpy2).toHaveBeenCalledWith('a');
+
+        subscribable.notifySubscribers('b', 'custom');
+        expect(notifySpy1).not.toHaveBeenCalled();
+        expect(notifySpy2).toHaveBeenCalledWith('b');
+
+        // Advance clock; Notification happens now using the latest value notified
+        notifySpy2.reset();
+        jasmine.Clock.tick(501);
+        expect(notifySpy1).toHaveBeenCalledWith('b');
+        expect(notifySpy2).not.toHaveBeenCalled();
     });
 });
