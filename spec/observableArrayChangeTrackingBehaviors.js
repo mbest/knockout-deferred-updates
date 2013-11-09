@@ -264,39 +264,6 @@ describe('Observable Array change tracking', function() {
         ]);
     });
 
-    it('Should provide correct changelist when multiple updates are merged into one notification using deferred updates', function() {
-        var myArray = ko.observableArray(['Alpha', 'Beta']),
-            changelist;
-
-        myArray.subscribe(function(changes) {
-            changelist = changes;
-        }, null, 'arrayChange');
-
-        myArray.push('Gamma');
-        myArray.push('Delta');
-        ko.processAllDeferredUpdates();
-        expect(changelist).toEqual([
-            { status : 'added', value : 'Gamma', index : 2 },
-            { status : 'added', value : 'Delta', index : 3 }
-        ]);
-
-        changelist = undefined;
-        myArray.shift();
-        myArray.shift();
-        ko.processAllDeferredUpdates();
-        expect(changelist).toEqual([
-            { status : 'deleted', value : 'Alpha', index : 0 },
-            { status : 'deleted', value : 'Beta', index : 1 }
-        ]);
-
-        changelist = undefined;
-        myArray.push('Epsilon');
-        myArray.pop();
-        ko.processAllDeferredUpdates();
-        expect(changelist).toEqualOneOf([[], undefined]);
-    });
-
-
     function testKnownOperation(array, operationName, options) {
         var changeList,
             subscription = array.subscribe(function(changes) {

@@ -72,27 +72,6 @@ describe('Dependent Observable', function() {
         model.prop1('prop1').prop2('prop2');
     });
 
-    it('Should invoke the read function (and trigger notifications) if the write function updates dependent observables', function() {
-        var observable = ko.observable();
-        var computed = ko.dependentObservable({
-            read: function() { return observable(); },
-            write: function(value) { observable(value); }
-        });
-        var notifiedValue;
-        computed.subscribe(function(value) {
-            notifiedValue = value;
-        });
-
-        // Initially undefined
-        expect(computed()).toEqual(undefined);
-        expect(notifiedValue).toEqual(undefined);
-
-        // Update computed and verify that correct notification happened
-        computed("new value");
-        ko.processAllDeferredUpdates();
-        expect(notifiedValue).toEqual("new value");
-    });
-
     it('Should use options.owner as "this" when invoking the "write" callback, and can pass multiple parameters', function() {
         var invokedWriteWithArgs, invokedWriteWithThis;
         var someOwner = {};
@@ -150,17 +129,6 @@ describe('Dependent Observable', function() {
     it('Should be able to use \'peek\' on an observable to avoid a dependency', function() {
         var observable = ko.observable(1),
             computed = ko.dependentObservable(function () { return observable.peek() + 1; });
-        expect(computed()).toEqual(2);
-
-        observable(50);
-        expect(computed()).toEqual(2);    // value wasn't changed
-    });
-
-    it('Should be able to use \'ko.ignoreDependencies\' within a computed to avoid dependencies', function() {
-        var observable = ko.observable(1),
-            computed = ko.dependentObservable(function () {
-                return ko.ignoreDependencies(function() { return observable() + 1 } );
-            });
         expect(computed()).toEqual(2);
 
         observable(50);
@@ -478,48 +446,6 @@ describe('Dependent Observable', function() {
         // Update observable to cause computed to re-evaluate
         observable(1);
         expect(computed()).toEqual(1);
-    });
-
-    it('getDependencies sould return list of dependencies', function() {
-        var observableA = ko.observable("A");
-        var observableB = ko.observable("B");
-        var observableToUse = ko.observable("A");
-        var computed = ko.dependentObservable(function () {
-            return observableToUse() == "A" ? observableA() : observableB();
-        });
-
-        expect(computed()).toEqual("A");
-        expect(computed.getDependencies()).toEqual([observableToUse, observableA]);
-        expect(observableA.getDependents()).toEqual([computed]);
-        expect(observableB.getDependents()).toEqual([]);
-
-        // Switch to other observable
-        observableToUse("B");
-        expect(computed()).toEqual("B");
-        expect(computed.getDependencies()).toEqual([observableToUse, observableB]);
-        expect(observableA.getDependents()).toEqual([]);
-        expect(observableB.getDependents()).toEqual([computed]);
-    });
-
-    it('Should be able to pause/resume a computed using activeWhen', function() {
-        var observable = ko.observable("A");
-        var isActive = ko.observable(true);
-        var computed = ko.computed(function () {
-            return observable();
-        });
-        computed.activeWhen(isActive);   // intially active
-
-        // When not paused, computed is updated normally
-        expect(computed()).toEqual("A");
-        observable("B");
-        expect(computed()).toEqual("B");
-
-        // When paused, computed value stays the same until unpaused
-        isActive(false);
-        observable("C");
-        expect(computed()).toEqual("B");
-        isActive(true);
-        expect(computed()).toEqual("C");
     });
 
     it('Should expose a "notify" extender that can configure a computed to notify on all changes', function() {

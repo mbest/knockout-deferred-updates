@@ -66,21 +66,6 @@ describe('Observable', function() {
         expect(notifiedValues[1]).toEqual('B');
     });
 
-    it('Should notify subscribers about only latest when using deferred updates value', function () {
-        var instance = new ko.observable();
-        var notifiedValues = [];
-        instance.subscribe(function (value) {
-            notifiedValues.push(value);
-        });
-
-        instance('A');
-        instance('B');
-        ko.processAllDeferredUpdates();
-
-        expect(notifiedValues.length).toEqual(1);
-        expect(notifiedValues[0]).toEqual('B');
-    });
-
     it('Should be able to tell it that its value has mutated, at which point it notifies subscribers', function () {
         var instance = new ko.observable();
         var notifiedValues = [];
