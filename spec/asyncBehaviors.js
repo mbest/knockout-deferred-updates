@@ -1,5 +1,7 @@
 describe("Throttled observables", function() {
-    beforeEach(function() { waits(1); }); // Workaround for spurious timing-related failures on IE8 (issue #736)
+    beforeEach(function() {
+        jasmine.Clock.useMock();
+    });
 
     it("Should notify subscribers asynchronously after writes stop for the specified timeout duration", function() {
         var observable = ko.observable('A').extend({ throttle: 100 });
@@ -8,36 +10,30 @@ describe("Throttled observables", function() {
             notifiedValues.push(value);
         });
 
-        runs(function() {
-            // Mutate a few times
-            observable('B');
-            observable('C');
-            observable('D');
-            expect(notifiedValues.length).toEqual(0); // Should not notify synchronously
-        });
+        // Mutate a few times
+        observable('B');
+        observable('C');
+        observable('D');
+        expect(notifiedValues.length).toEqual(0); // Should not notify synchronously
 
         // Wait
-        waits(10);
-        runs(function() {
-            // Mutate more
-            observable('E');
-            observable('F');
-            expect(notifiedValues.length).toEqual(0); // Should not notify until end of throttle timeout
-        });
+        jasmine.Clock.tick(10);
+        // Mutate more
+        observable('E');
+        observable('F');
+        expect(notifiedValues.length).toEqual(0); // Should not notify until end of throttle timeout
 
         // Wait until after timeout
-        waitsFor(function() {
-            return notifiedValues.length > 0;
-        }, 300);
-        runs(function() {
-            expect(notifiedValues.length).toEqual(1);
-            expect(notifiedValues[0]).toEqual("F");
-        });
+        jasmine.Clock.tick(100);
+        expect(notifiedValues.length).toEqual(1);
+        expect(notifiedValues[0]).toEqual("F");
     });
 });
 
 describe("Throttled dependent observables", function() {
-    beforeEach(function() { waits(1); }); // Workaround for spurious timing-related failures on IE8 (issue #736)
+    beforeEach(function() {
+        jasmine.Clock.useMock();
+    });
 
     it("Should notify subscribers asynchronously after dependencies stop updating for the specified timeout duration", function() {
         var underlying = ko.observable(), lastUpdateValue;
@@ -56,36 +52,27 @@ describe("Throttled dependent observables", function() {
                 return value;
         });
 
-
         // Check initial state
         expect(lastUpdateValue).toBeUndefined();
-        runs(function() {
-            // Mutate
-            underlying('New value');
-            expect(lastUpdateValue).toBeUndefined(); // Should not update synchronously
-            expect(notifiedValues.length).toEqual(0);
-        	expect(computedNotifiedValues.length).toEqual(0);
-        });
+        // Mutate
+        underlying('New value');
+        expect(lastUpdateValue).toBeUndefined(); // Should not update synchronously
+        expect(notifiedValues.length).toEqual(0);
+    	expect(computedNotifiedValues.length).toEqual(0);
 
         // Still shouldn't have evaluated
-        waits(10);
-        runs(function() {
-            expect(lastUpdateValue).toBeUndefined(); // Should not update until throttle timeout
-            expect(notifiedValues.length).toEqual(0);
-        	expect(computedNotifiedValues.length).toEqual(0);
-        });
+        jasmine.Clock.tick(10);
+        expect(lastUpdateValue).toBeUndefined(); // Should not update until throttle timeout
+        expect(notifiedValues.length).toEqual(0);
+    	expect(computedNotifiedValues.length).toEqual(0);
 
         // Now wait for throttle timeout
-        waitsFor(function() {
-            return notifiedValues.length > 0;
-        }, 300);
-        runs(function() {
-            expect(lastUpdateValue).toEqual('New value');
-            expect(notifiedValues.length).toEqual(1);
-            expect(notifiedValues[0]).toEqual('New value');
-        	expect(computedNotifiedValues.length).toEqual(1);
-        	expect(computedNotifiedValues[0]).toEqual('New value');
-        });
+        jasmine.Clock.tick(100);
+        expect(lastUpdateValue).toEqual('New value');
+        expect(notifiedValues.length).toEqual(1);
+        expect(notifiedValues[0]).toEqual('New value');
+    	expect(computedNotifiedValues.length).toEqual(1);
+    	expect(computedNotifiedValues[0]).toEqual('New value');
     });
 
     it("Should run evaluator only once when dependencies stop updating for the specified timeout duration", function() {
@@ -96,30 +83,22 @@ describe("Throttled dependent observables", function() {
             return someDependency();
         }).extend({ throttle: 100 });
 
-        runs(function() {
-            // Mutate a few times synchronously
-            expect(evaluationCount).toEqual(1); // Evaluates synchronously when first created, like all dependent observables
-            someDependency("A");
-            someDependency("B");
-            someDependency("C");
-            expect(evaluationCount).toEqual(1); // Should not re-evaluate synchronously when dependencies update
-        });
+        // Mutate a few times synchronously
+        expect(evaluationCount).toEqual(1); // Evaluates synchronously when first created, like all dependent observables
+        someDependency("A");
+        someDependency("B");
+        someDependency("C");
+        expect(evaluationCount).toEqual(1); // Should not re-evaluate synchronously when dependencies update
 
         // Also mutate async
-        waits(10);
-        runs(function() {
-            someDependency("D");
-            expect(evaluationCount).toEqual(1);
-        });
+        jasmine.Clock.tick(10);
+        someDependency("D");
+        expect(evaluationCount).toEqual(1);
 
         // Now wait for throttle timeout
-        waitsFor(function() {
-            return evaluationCount > 1;
-        }, 300);
-        runs(function() {
-            expect(evaluationCount).toEqual(2); // Finally, it's evaluated
-            expect(asyncDepObs()).toEqual("D");
-        });
+        jasmine.Clock.tick(100);
+        expect(evaluationCount).toEqual(2); // Finally, it's evaluated
+        expect(asyncDepObs()).toEqual("D");
     });
 });
 
@@ -133,7 +112,7 @@ describe("Asynchronous bindings", function() {
         testNode = document.createElement("div");
         testNode.id = "testNode";
         document.body.appendChild(testNode);
-        waits(1);   // Workaround for spurious timing-related failures on IE8 (issue #736)
+        jasmine.Clock.useMock();
     });
     afterEach(function() {
         document.body.removeChild(testNode);
@@ -150,28 +129,24 @@ describe("Asynchronous bindings", function() {
 
         ko.applyBindings({ myObservable: observable }, testNode);
 
-        runs(function () {
-            expect(initPassedValues.length).toEqual(1);
-            expect(updatePassedValues.length).toEqual(1);
-            expect(initPassedValues[0]).toEqual(undefined);
-            expect(updatePassedValues[0]).toEqual(undefined);
+        expect(initPassedValues.length).toEqual(1);
+        expect(updatePassedValues.length).toEqual(1);
+        expect(initPassedValues[0]).toEqual(undefined);
+        expect(updatePassedValues[0]).toEqual(undefined);
 
-            // mutate; update should not be called yet
-            observable("A");
-            expect(updatePassedValues.length).toEqual(1);
+        // mutate; update should not be called yet
+        observable("A");
+        expect(updatePassedValues.length).toEqual(1);
 
-            // mutate; update should not be called yet
-            observable("B");
-            expect(updatePassedValues.length).toEqual(1);
-        });
+        // mutate; update should not be called yet
+        observable("B");
+        expect(updatePassedValues.length).toEqual(1);
 
-        waits(10);
-        runs(function() {
-            // only the latest value should be used
-            expect(initPassedValues.length).toEqual(1);
-            expect(updatePassedValues.length).toEqual(2);
-            expect(updatePassedValues[1]).toEqual("B");
-        });
+        jasmine.Clock.tick(100);
+        // only the latest value should be used
+        expect(initPassedValues.length).toEqual(1);
+        expect(updatePassedValues.length).toEqual(2);
+        expect(updatePassedValues[1]).toEqual("B");
     });
 
     it("Should update template asynchronously", function() {
@@ -185,30 +160,26 @@ describe("Asynchronous bindings", function() {
 
         ko.applyBindings({ myObservable: observable }, testNode);
 
-        runs(function () {
-            expect(initPassedValues.length).toEqual(1);
-            expect(updatePassedValues.length).toEqual(1);
-            expect(initPassedValues[0]).toEqual(undefined);
-            expect(updatePassedValues[0]).toEqual(undefined);
+        expect(initPassedValues.length).toEqual(1);
+        expect(updatePassedValues.length).toEqual(1);
+        expect(initPassedValues[0]).toEqual(undefined);
+        expect(updatePassedValues[0]).toEqual(undefined);
 
-            // mutate; template should not re-evaluated yet
-            observable("A");
-            expect(initPassedValues.length).toEqual(1);
-            expect(updatePassedValues.length).toEqual(1);
+        // mutate; template should not re-evaluated yet
+        observable("A");
+        expect(initPassedValues.length).toEqual(1);
+        expect(updatePassedValues.length).toEqual(1);
 
-            // mutate again; template should not re-evaluated yet
-            observable("B");
-            expect(initPassedValues.length).toEqual(1);
-            expect(updatePassedValues.length).toEqual(1);
-        });
+        // mutate again; template should not re-evaluated yet
+        observable("B");
+        expect(initPassedValues.length).toEqual(1);
+        expect(updatePassedValues.length).toEqual(1);
 
-        waits(10);
-        runs(function() {
-            // only the latest value should be used
-            expect(initPassedValues.length).toEqual(2);
-            expect(updatePassedValues.length).toEqual(2);
-            expect(updatePassedValues[1]).toEqual("B");
-        });
+        jasmine.Clock.tick(10);
+        // only the latest value should be used
+        expect(initPassedValues.length).toEqual(2);
+        expect(updatePassedValues.length).toEqual(2);
+        expect(updatePassedValues[1]).toEqual("B");
     });
 
     it("Should update 'foreach' items asynchronously", function() {
@@ -222,30 +193,26 @@ describe("Asynchronous bindings", function() {
 
         ko.applyBindings({ myObservables: observable }, testNode);
 
-        runs(function() {
-            expect(initPassedValues.length).toEqual(1);
-            expect(updatePassedValues.length).toEqual(1);
-            expect(initPassedValues[0]).toEqual("A");
-            expect(updatePassedValues[0]).toEqual("A");
+        expect(initPassedValues.length).toEqual(1);
+        expect(updatePassedValues.length).toEqual(1);
+        expect(initPassedValues[0]).toEqual("A");
+        expect(updatePassedValues[0]).toEqual("A");
 
-            // mutate; template should not re-evaluated yet
-            observable(["B"]);
-            expect(initPassedValues.length).toEqual(1);
-            expect(updatePassedValues.length).toEqual(1);
+        // mutate; template should not re-evaluated yet
+        observable(["B"]);
+        expect(initPassedValues.length).toEqual(1);
+        expect(updatePassedValues.length).toEqual(1);
 
-            // mutate again; template should not re-evaluated yet
-            observable(["C"]);
-            expect(initPassedValues.length).toEqual(1);
-            expect(updatePassedValues.length).toEqual(1);
-        });
+        // mutate again; template should not re-evaluated yet
+        observable(["C"]);
+        expect(initPassedValues.length).toEqual(1);
+        expect(updatePassedValues.length).toEqual(1);
 
-        waits(10);
-        runs(function() {
-            // only the latest value should be used
-            expect(initPassedValues.length).toEqual(2);
-            expect(updatePassedValues.length).toEqual(2);
-            expect(initPassedValues[1]).toEqual("C");
-            expect(updatePassedValues[1]).toEqual("C");
-        });
+        jasmine.Clock.tick(10);
+        // only the latest value should be used
+        expect(initPassedValues.length).toEqual(2);
+        expect(updatePassedValues.length).toEqual(2);
+        expect(initPassedValues[1]).toEqual("C");
+        expect(updatePassedValues[1]).toEqual("C");
     });
 });

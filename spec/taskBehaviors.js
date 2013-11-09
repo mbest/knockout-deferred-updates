@@ -1,6 +1,14 @@
+afterEach(function() {
+    ko.processAllDeferredUpdates(); // ensure that task schedule is clear after each test
+});
+
 describe('Delayed tasks', function() {
+    beforeEach(function() {
+        jasmine.Clock.useMock();
+    });
+
     afterEach(function() {
-        // ensure that task schedule is clear after each test
+        // Actually check that task schedule is clear after each test
         expect(ko.processAllDeferredUpdates()).toEqual(0);
     });
 
@@ -11,10 +19,8 @@ describe('Delayed tasks', function() {
         });
         expect(runCount).toEqual(0);
 
-        waits(50);
-        runs(function() {
-            expect(runCount).toEqual(1);
-        });
+        jasmine.Clock.tick(50);
+        expect(runCount).toEqual(1);
     });
 
     it('Should only run once even if scheduled more than once', function() {
@@ -26,10 +32,8 @@ describe('Delayed tasks', function() {
         ko.tasks.processDelayed(func);
         expect(runCount).toEqual(0);
 
-        waits(50);
-        runs(function() {
-            expect(runCount).toEqual(1);
-        });
+        jasmine.Clock.tick(50);
+        expect(runCount).toEqual(1);
     });
 
     it('Should run multiple times if distinct is false', function() {
@@ -41,10 +45,8 @@ describe('Delayed tasks', function() {
         ko.tasks.processDelayed(func, false);
         expect(runCount).toEqual(0);
 
-        waits(50);
-        runs(function() {
-            expect(runCount).toEqual(2);
-        });
+        jasmine.Clock.tick(50);
+        expect(runCount).toEqual(2);
     });
 
     it('Should use options from last scheduled call', function() {
@@ -56,10 +58,8 @@ describe('Delayed tasks', function() {
         ko.tasks.processDelayed(func, true, {args:[2]});
         expect(runValue).toBeUndefined();
 
-        waits(50);
-        runs(function() {
-            expect(runValue).toEqual(2);
-        });
+        jasmine.Clock.tick(50);
+        expect(runValue).toEqual(2);
     });
 
     it('Should run only once if tasks are processed early using processAllDeferredUpdates', function() {
@@ -87,10 +87,8 @@ describe('Delayed tasks', function() {
 
         ko.tasks.processDelayed(func, true, {args:[2]});
 
-        waits(50);
-        runs(function() {
-            expect(runValues).toEqual([1,2]);
-        });
+        jasmine.Clock.tick(50);
+        expect(runValues).toEqual([1,2]);
     });
 
     it('Should run at the end of processImmediate', function() {
@@ -118,10 +116,8 @@ describe('Delayed tasks', function() {
         });
         expect(runValues).toEqual(['i']);
 
-        waits(50);
-        runs(function() {
-            expect(runValues).toEqual(['i','o']);
-        });
+        jasmine.Clock.tick(50);
+        expect(runValues).toEqual(['i','o']);
     });
 
     it('Should run all scheduled tasks if processed early by processAllDeferredUpdates', function() {
@@ -153,10 +149,8 @@ describe('Delayed tasks', function() {
         // If ko.processAllDeferredUpdates wasn't ignored, then both tasks would have already run
         expect(runValues).toEqual(['i']);
 
-        waits(50);
-        runs(function() {
-            expect(runValues).toEqual(['i','o']);
-        });
+        jasmine.Clock.tick(50);
+        expect(runValues).toEqual(['i','o']);
     });
 
     it('Should process newly scheduled tasks during task processing', function() {

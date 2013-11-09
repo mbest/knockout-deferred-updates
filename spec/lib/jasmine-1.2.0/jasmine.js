@@ -1607,6 +1607,7 @@ jasmine.FakeTimer.prototype.runFunctionsWithinRange = function(oldMillis, nowMil
 };
 
 jasmine.FakeTimer.prototype.scheduleFunction = function(timeoutKey, funcToCall, millis, recurring) {
+  millis = millis || 0;
   this.scheduledFunctions[timeoutKey] = {
     runAtMillis: this.nowMillis + millis,
     funcToCall: funcToCall,

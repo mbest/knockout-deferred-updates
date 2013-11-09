@@ -173,7 +173,7 @@ describe('Array to DOM node children mapping', function() {
         // Change the value of the mapped observable and verify that the DOM is updated
         mappingInvocations = [], countCallbackInvocations = 0;
         observable(2);
-        ko.processAllDeferredBindingUpdates();
+        ko.processAllDeferredUpdates();
         expect(ko.utils.arrayMap(testNode.childNodes, function (x) { return x.innerHTML })).toEqual(["2", "null", "B"]);
         expect(mappingInvocations).toEqual([observable]);
         expect(countCallbackInvocations).toEqual(mappingInvocations.length);
@@ -181,7 +181,7 @@ describe('Array to DOM node children mapping', function() {
         // Change the value of the callback observable and verify that the DOM wasn't updated
         mappingInvocations = [], countCallbackInvocations = 0;
         callbackObservable(2);
-        ko.processAllDeferredBindingUpdates();
+        ko.processAllDeferredUpdates();
         expect(mappingInvocations.length).toEqual(0);
         expect(countCallbackInvocations).toEqual(0);
     });
