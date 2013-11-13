@@ -2,7 +2,7 @@
  * @license Deferred Updates plugin for Knockout http://knockoutjs.com/
  * (c) Michael Best, Steven Sanderson
  * License: MIT (http://www.opensource.org/licenses/mit-license.php)
- * Version 3.0.0
+ * Version 3.0.1
  */
 
 (function(factory) {
@@ -19,8 +19,15 @@
 }
 (function(ko) {
 
-var g = typeof global === "object" && global ? global : window,
-    undefined = void 0;
+var g = typeof global === "object" && global ? global : window;
+var undefined;
+
+if (!ko) {
+    throw Error('Deferred Updates requires Knockout');
+}
+if (ko.version >= '3.1.0') {
+    throw Error('This version of Deferred Updates supports Knockout version 3.0 and lower.');
+}
 
 /*
  * Task manager for deferred tasks
