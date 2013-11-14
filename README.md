@@ -10,6 +10,8 @@ This plugin/patch modifies parts of Knockout’s observable/subscription system 
 
 * Minified: [knockout-deferred-updates.min.js](http://mbest.github.io/knockout-deferred-updates/knockout-deferred-updates.min.js)
 * Source: [knockout-deferred-updates.js](http://mbest.github.io/knockout-deferred-updates/knockout-deferred-updates.js)
+* Via [NPM](https://npmjs.org/package/knockout-deferred-updates): `npm install knockout-deferred-updates`
+* Via [NuGet](https://www.nuget.org/packages/Knockout.DeferredUpdates): `nuget install knockout.DeferredUpdates`
 
 #### Turning deferred updates on or off
 
