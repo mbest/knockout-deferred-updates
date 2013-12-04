@@ -66,14 +66,26 @@ ko.tasks = (function() {
     }
 
     function processTasks(start) {
-        var countProcessed = 0;
+        var countProcessed = 0, countMarks = 0;
+
+        // Add a mark to the end of the queue; each one marks the end of a logical group of tasks
+        // and the number of these groups is limited to prevent unchecked recursion.
+        taskQueueEnd = taskQueueEnd._next = { _mark: true };
+
         try {
             for (var item = start; item = item._next; ) {
                 processingItem = item;
-                if (!item._done) {
+                if (item._mark) {
+                    // When we encounter a mark, increment the mark counter and append a new mark to the queue
+                    if (item._next) {
+                        if (++countMarks >= 5000)
+                            throw Error("'Too much recursion' after processing " + countProcessed + " tasks.");
+                        taskQueueEnd = taskQueueEnd._next = { _mark: true };
+                    }
+                } else if (!item._done) {
                     item._done = true;
                     item._func.apply(item.object, item.args || []);
-                    countProcessed++;
+                    ++countProcessed;
                 }
             }
         } finally {
@@ -93,7 +105,7 @@ ko.tasks = (function() {
             }
             processingItem = undefined;
         }
-        return countProcessed++;
+        return countProcessed;
     }
 
     function processAllTasks() {

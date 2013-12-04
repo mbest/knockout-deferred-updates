@@ -127,4 +127,16 @@ describe('Deferred Updates', function() {
         });
     });
 
+    describe('Recursive updates', function() {
+        beforeEach(jasmine.prepareTestNode);
+
+        it('Should be prevented for value binding on multiple select boxes', function() {
+            testNode.innerHTML = "<select data-bind=\"options: ['abc','def','ghi'], value: x\"></select><select data-bind=\"options: ['xyz','uvw'], value: x\"></select>";
+            var observable = ko.observable();
+            expect(ko.tasks.makeProcessedCallback(function() {
+                ko.applyBindings({ x: observable }, testNode);
+            })).toThrowContaining('Too much recursion');
+        });
+    });
+
 });
