@@ -1,7 +1,7 @@
 // Deferred Updates plugin for Knockout http://knockoutjs.com/
 // (c) Michael Best, Steven Sanderson
 // License: MIT (http://www.opensource.org/licenses/mit-license.php)
-// Version 2.1.0
+// Version 2.1.0x
 
 (function(factory) {
     if (typeof require === 'function' && typeof exports === 'object' && typeof module === 'object') {
@@ -38,6 +38,8 @@ ko.tasks = (function() {
     }
 
     function processEvaluators(start) {
+        var countProcessed = 0;
+
         start = start || 0;
         if (start < indexNextToProcess) {   // don't allow processEvaluators to be called again for an earlier set
             return;
@@ -48,6 +50,7 @@ ko.tasks = (function() {
                 if (!evObj.processed) {
                     evObj.processed = true;
                     (0,evaluatorsArray[i]).apply(evObj.object, evObj.args || []);
+                    ++countProcessed;
                 }
             }
         } finally {
@@ -63,11 +66,12 @@ ko.tasks = (function() {
             }
             indexNextToProcess = undefined;
         }
+        return countProcessed;
     }
 
     // need to wrap function call because Firefox calls setTimeout callback with a parameter
     function processEvaluatorsCallback() {
-        processEvaluators();
+        return processEvaluators();
     }
 
     function isEvaluatorDuplicate(evaluator, extras) {
@@ -130,7 +134,7 @@ ko.tasks = (function() {
 
 function findNameMethodSignatureContaining(obj, match) {
     for (var a in obj)
-        if (obj.hasOwnProperty(a) && obj[a].toString().indexOf(match) >= 0)
+        if (obj.hasOwnProperty(a) && obj[a] && obj[a].toString().indexOf(match) >= 0)
             return a;
 }
 
@@ -153,8 +157,8 @@ function findSubObjectWithProperty(obj, prop) {
 
 // Find ko.dependencyDetection and its methods
 var depDet = findSubObjectWithProperty(ko, 'end'),
-    depDetIgnoreName = findNameMethodSignatureContaining(depDet, '.apply('),
-    depDetBeginName = findNameMethodSignatureContaining(depDet, '.push({'),
+    depDetIgnoreName = findNameMethodSignatureContaining(depDet, '.apply(') || 'ignore',
+    depDetBeginName = findNameMethodSignatureContaining(depDet, ':[]'),
     depDetRegisterName = findNameMethodSignatureContaining(depDet, '.length');
 
 // Find hidden properties and methods of ko.computed and its returned values
@@ -174,14 +178,14 @@ var oldComputed = ko.computed,
 // Find hidden names for disposeWhenNodeIsRemoved and disposeWhen by examining the function source
 if (hasWriteFunctionName != 'hasWriteFunction') {
     var oldComputedStr = oldComputed.toString(), match1, match2;
-    if (match1 = oldComputedStr.match(/.\.disposeWhenNodeIsRemoved\|\|.\.([^|]+)\|\|/))
+    if (match1 = oldComputedStr.match(/.\.disposeWhenNodeIsRemoved\s*\|\|\s*.\.([^|\s,]+)/))
         disposeWhenNodeIsRemovedName = match1[1];
-    if (match2 = oldComputedStr.match(/.\.disposeWhen\|\|.\.([^|]+)\|\|/))
+    if (match2 = oldComputedStr.match(/.\.disposeWhen\s*\|\|\s*.\.([^|\s,]+)/))
         disposeWhenName = match2[1];
 }
 
 // Find ko.utils.domNodeIsAttachedToDocument
-var nodeInDocName = findNameMethodSignatureContaining(ko.utils, 'ocument)');
+var nodeInDocName = findNameMethodSignatureContaining(ko.utils, 'documentElement)') || findNameMethodSignatureContaining(ko.utils, 'ocument)');
 
 // Find the name of the ko.subscribable.fn.subscribe function
 var subFnObj = ko.subscribable.fn,
@@ -189,9 +193,9 @@ var subFnObj = ko.subscribable.fn,
 
 // Find the name of ko.subscription.dispose
 var subscription = new ko.subscribable().subscribe(),
+    oldSubDispose = subscription.dispose,
     subscriptionProto = subscription.constructor.prototype,
-    subDisposeName = findPropertyName(subscriptionProto, subscription.dispose),
-    oldSubDispose = subscriptionProto[subDisposeName];
+    subDisposeName = findPropertyName(subscriptionProto, oldSubDispose);
 subscription.dispose();
 subscription = null;
 
@@ -471,7 +475,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     // (Note: 'disposeWhenNodeIsRemoved' option both proactively disposes as soon as the node is removed using ko.removeNode(),
     // plus adds a 'disposeWhen' callback that, on each evaluation, disposes if the node was removed by some other means.)
     var disposeWhen = options[disposeWhenName] || options.disposeWhen || function() { return false; };
-    if (disposeWhenNodeIsRemoved && isActive()) {
+    if (disposeWhenNodeIsRemoved && disposeWhenNodeIsRemoved.nodeType && isActive()) {
         dispose = function() {
             ko.utils.domNodeDisposal.removeDisposeCallback(disposeWhenNodeIsRemoved, dispose);
             disposeAllSubscriptionsToDependencies();
@@ -543,6 +547,13 @@ ko.extenders.throttle = function(target, timeout) {
         target.throttleEvaluation = timeout;
         return target;
     }
+};
+
+/*
+ * Add deferred extender
+ */
+ko.extenders.deferred = function(target, value) {
+    target.deferUpdates = value;
 };
 
 return ko;
