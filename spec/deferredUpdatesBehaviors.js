@@ -25,9 +25,10 @@ describe('Deferred Updates', function() {
                 write: function(value) { observable(value); }
             });
             var notifiedValue;
-            computed.subscribe(function(value) {
+            var subscription = computed.subscribe(function(value) {
                 notifiedValue = value;
             });
+            subscription.deferUpdates = false;
 
             // Initially undefined
             expect(computed()).toEqual(undefined);
@@ -35,7 +36,6 @@ describe('Deferred Updates', function() {
 
             // Update computed and verify that correct notification happened
             computed("new value");
-            ko.processAllDeferredUpdates();
             expect(notifiedValue).toEqual("new value");
         });
 
