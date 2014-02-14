@@ -209,6 +209,14 @@ if (!ko.utils.objectMap) {
     };
 }
 
+var setPrototypeOfOrExtend =
+    ({ __proto__: [] } instanceof Array) ?
+        function setPrototypeOf(obj, proto) {
+            obj.__proto__ = proto;
+            return obj;
+        } :
+        ko.utils.extend;
+
 // Helper functions for sniffing the minified Knockout code
 function findNameMethodSignatureContaining(obj, match) {
     for (var a in obj)
@@ -335,9 +343,7 @@ subFnObj[subFnName] = subFnObj.subscribe = function (callback, callbackTarget, e
     event = event || 'change';
     var newCallback;
     if (!computed) {
-        var boundCallback = function(valueToNotify) {
-            callback.call(callbackTarget, valueToNotify, event);
-        };
+        var boundCallback = callbackTarget ? callback.bind(callbackTarget) : callback;
         if (event != 'change') {
             newCallback = boundCallback;
         } else {
@@ -349,9 +355,7 @@ subFnObj[subFnName] = subFnObj.subscribe = function (callback, callbackTarget, e
             };
         }
     } else {
-        newCallback = function(valueToNotify) {
-            callback(valueToNotify, event);
-        };
+        newCallback = callback;
         if (event == 'change') {
             this.dependents = this.dependents || [];
             this.dependents.push(computed);
@@ -424,6 +428,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         _needsEvaluation = true,
         _dontEvaluate = false,
         _suppressDisposalUntilDisposeWhenReturnsFalse = false,
+        _isDisposed = false,
         readFunction = evaluatorFunctionOrOptions;
 
     if (readFunction && typeof readFunction == 'object') {
@@ -446,6 +451,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
 
     var _subscriptionsToDependencies = {}, _dependenciesCount = 0, othersToDispose = [];
     function disposeAllSubscriptionsToDependencies() {
+        _isDisposed = true;
         ko.utils.objectForEach(_subscriptionsToDependencies, function (id, subscription) {
             subscription.dispose();
         });
@@ -484,21 +490,25 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         }
     }
 
-    function markAsChanged(value, event) {
+    function markAsChanged(value) {
         if (!_possiblyNeedsEvaluation && !_needsEvaluation) {
-            evaluatePossiblyAsync(value, event);
+            evaluatePossiblyAsync(value, 'change');
         } else {
             _needsEvaluation = true;
         }
     }
 
-    function addDependency(subscribable, id) {
+    function martAsDirty(value) {
+        evaluatePossiblyAsync(value, 'dirty');
+    }
+
+    function addSubscriptionToDependency(subscribable, id) {
         if (!_subscriptionsToDependencies[id]) {
             var subscription;
             if (subscribable[koProtoName] === newComputed) {
-                 subscription = subscribeToComputed(subscribable, evaluatePossiblyAsync, markAsChanged, dependentObservable);
+                 subscription = subscribeToComputed(subscribable, martAsDirty, markAsChanged, dependentObservable);
             } else {
-                subscription = subscribable.subscribe(evaluatePossiblyAsync, null, 'change', false, dependentObservable);
+                subscription = subscribable.subscribe(markAsChanged, null, 'change', false, dependentObservable);
             }
             _subscriptionsToDependencies[id] = subscription;
             _dependenciesCount++;
@@ -514,6 +524,10 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     }
 
     function isDisposed() {
+        if (_isDisposed) {
+            return true;
+        }
+
         if (disposeWhen && disposeWhen()) {
             // See comment below about _suppressDisposalUntilDisposeWhenReturnsFalse
             if (!_suppressDisposalUntilDisposeWhenReturnsFalse) {
@@ -533,6 +547,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
             return;
         }
 
+        // Do not evaluate (and possibly capture new dependencies) if disposed
         if (isDisposed()) {
             return;
         }
@@ -541,34 +556,45 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         try {
             // Initially, we assume that none of the subscriptions are still being used (i.e., all are candidates for disposal).
             // Then, during evaluation, we cross off any that are in fact still being used.
-            var disposalCandidates = ko.utils.objectMap(_subscriptionsToDependencies, function() {return true;}), numToDispose = _dependenciesCount;
+            var disposalCandidates = _subscriptionsToDependencies, disposalCount = _dependenciesCount;
             depDet[depDetBeginName]({
                 callback: function(subscribable, id) {
-                    if (disposalCandidates[id]) {
-                        disposalCandidates[id] = undefined;  // Don't want to dispose this subscription, as it's still being used
-                        numToDispose--;
-                    } else {
-                        addDependency(subscribable, id); // Brand new subscription - add it
+                    if (!_isDisposed) {
+                        if (disposalCount && disposalCandidates[id]) {
+                            // Don't want to dispose this subscription, as it's still being used
+                            _subscriptionsToDependencies[id] = disposalCandidates[id];
+                            ++_dependenciesCount;
+                            delete disposalCandidates[id];
+                            --disposalCount;
+                        } else {
+                            // Brand new subscription - add it
+                            addSubscriptionToDependency(subscribable, id);
+                        }
                     }
                 },
                 computed: dependentObservable,
                 isInitial: !_dependenciesCount        // If we're evaluating when there are no previous dependencies, it must be the first time
             });
 
-            var newValue = readFunction.call(evaluatorFunctionTarget);
+            _subscriptionsToDependencies = {};
+            _dependenciesCount = 0;
 
-            // For each subscription no longer being used, remove it from the active subscriptions list and dispose it
-            if (numToDispose) {
-                ko.utils.objectForEach(disposalCandidates, function(id, toDispose) {
-                    if (toDispose) {
-                        _subscriptionsToDependencies[id].dispose();
-                        delete _subscriptionsToDependencies[id];
-                        _dependenciesCount--;
-                    }
-                });
+            try {
+                var newValue = evaluatorFunctionTarget ? readFunction.call(evaluatorFunctionTarget) : readFunction();
+
+            } finally {
+                depDet.end();
+
+                // For each subscription no longer being used, remove it from the active subscriptions list and dispose it
+                if (disposalCount) {
+                    ko.utils.objectForEach(disposalCandidates, function(id, toDispose) {
+                        toDispose.dispose();
+                    });
+                }
+
+                // For compatibility with Knockout 2.3.0, mark computed as evaluated even if the evaluator threw an exception
+                _possiblyNeedsEvaluation = _needsEvaluation = false;
             }
-
-            _possiblyNeedsEvaluation = _needsEvaluation = false;
 
             if (!dependentObservable.equalityComparer || !dependentObservable.equalityComparer(_latestValue, newValue)) {
                 dependentObservable.notifySubscribers(_latestValue, 'beforeChange');
@@ -578,10 +604,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
                 dependentObservable.notifySubscribers(_latestValue);
             }
         } finally {
-            depDet.end();
             _dontEvaluate = false;
-            // For compatibility with Knockout 2.3.0, mark computed as evaluated even if the evaluator threw an exception
-            _possiblyNeedsEvaluation = _needsEvaluation = false;
         }
 
         return;
@@ -591,7 +614,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         _dontEvaluate = true;
         try {
             depDet[depDetBeginName]({
-                callback: addDependency,
+                callback: addSubscriptionToDependency,
                 computed: dependentObservable,
                 isInitial: true
             });
@@ -678,7 +701,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
 
     // Set properties of returned function
     ko.subscribable.call(dependentObservable);
-    ko.utils.extend(dependentObservable, newComputed.fn);
+    setPrototypeOfOrExtend(dependentObservable, newComputed.fn);
 
     dependentObservable[peekName] = dependentObservable.peek = peek;
     dependentObservable[getDependenciesCountName] = dependentObservable.getDependenciesCount = function () { return _dependenciesCount; };
