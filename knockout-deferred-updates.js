@@ -25,8 +25,8 @@ var undefined;
 if (!ko) {
     throw Error('Deferred Updates requires Knockout');
 }
-if (ko.version >= '3.1.0') {
-    throw Error('This version of Deferred Updates supports Knockout version 3.0 and lower.');
+if (ko.version >= '3.2.0') {
+    throw Error('This version of Deferred Updates supports Knockout version 3.1 and lower.');
 }
 
 /*
@@ -220,6 +220,13 @@ function findPropertyName(obj, equals) {
         if (obj.hasOwnProperty(a) && obj[a] === equals)
             return a;
 }
+function findPropertyNames(obj, equals) {
+    var names = [];
+    for (var a in obj)
+        if (obj.hasOwnProperty(a) && obj[a] === equals)
+            names.push(a);
+    return names;
+}
 function findSubObjectWithProperty(obj, prop) {
     for (var a in obj)
         if (obj.hasOwnProperty(a) && obj[a] && obj[a][prop])
@@ -234,13 +241,14 @@ function findSubObjectWithProperty(obj, prop) {
 // Find ko.dependencyDetection and its methods
 var depDet = findSubObjectWithProperty(ko, 'end'),
     depDetIgnoreName = findNameMethodSignatureContaining(depDet, '.apply(') || 'ignore',
-    depDetBeginName = findNameMethodSignatureContaining(depDet, ':[]'),
-    depDetRegisterName = findNameMethodSignatureContaining(depDet, '.length');
+    depDetBeginName = findNameMethodSignatureContaining(depDet, '.push'),
+    depDetRegisterName = findNameMethodSignatureContaining(depDet, 'Only subscribable'),
+    isInitialName = depDet.isInitial ? findPropertyName(depDet, depDet.isInitial) : 'isInitial';
 
 // Find hidden properties and methods of ko.computed and its returned values
 // Also find the minified name of ko.computed (so Knockout will also use the new version)
 var oldComputed = ko.computed,
-    computedName = findPropertyName(ko, oldComputed),
+    computedNames = findPropertyNames(ko, oldComputed),
     koProtoName = findPropertyName(oldComputed.fn, oldComputed),
     computedProto = ko.computed(function() {}),
     peekName = findPropertyName(computedProto, computedProto.peek) || 'peek',
@@ -269,9 +277,8 @@ var subFnObj = ko.subscribable.fn,
 
 // Find the name of ko.subscription.dispose
 var subscription = new ko.subscribable().subscribe(),
-    oldSubDispose = subscription.dispose,
     subscriptionProto = subscription.constructor.prototype,
-    subDisposeName = findPropertyName(subscriptionProto, oldSubDispose);
+    subDisposeName = findPropertyName(subscriptionProto, subscription.dispose);
 subscription.dispose();
 subscription = null;
 
@@ -279,44 +286,52 @@ subscription = null;
 /*
  * Update dependencyDetection to use an id for each observable
  */
-var _frames = [], nonce = 0;
+var outerFrames = [],
+    currentFrame,
+    lastId = 0;
 function getId() {
     // The main concern for this method of generating a unique id is that you could eventually
     // overflow the number storage size. In JavaScript, the largest exact integral value
     // is 2^53 or 9,007,199,254,740,992; which seems plenty for any normal application.
     // See http://blog.vjeux.com/2010/javascript/javascript-max_int-number-limits.html
-    return ++nonce;
+    return ++lastId;
 }
-depDet[depDetBeginName] = function (callback) {
-    _frames.push(callback);
+depDet[depDetBeginName] = function (options) {
+    outerFrames.push(currentFrame);
+    currentFrame = options;
 };
 depDet.end = function () {
-    _frames.pop();
+    currentFrame = outerFrames.pop();
 };
 depDet[depDetRegisterName] = function (subscribable) {
-    if (!ko.isSubscribable(subscribable))
-        throw new Error("Only subscribable things can act as dependencies");
-    if (_frames.length > 0) {
-        var topFrame = _frames[_frames.length - 1];
-        if (topFrame)
-            topFrame(subscribable, (subscribable._id = subscribable._id || getId()));
+    if (currentFrame) {
+        if (!ko.isSubscribable(subscribable))
+            throw new Error("Only subscribable things can act as dependencies");
+        currentFrame.callback(subscribable, subscribable._id || (subscribable._id = getId()));
     }
 };
 ko.ignoreDependencies = depDet[depDetIgnoreName] = function(callback, callbackTarget, callbackArgs) {
     try {
-        _frames.push(null);
+        depDet[depDetBeginName]();
         return callback.apply(callbackTarget, callbackArgs || []);
     } finally {
-        _frames.pop();
+        depDet.end();
     }
 };
-
+depDet[getDependenciesCountName] = depDet.getDependenciesCount = function () {
+    if (currentFrame)
+        return currentFrame.computed.getDependenciesCount();
+};
+depDet[isInitialName] = depDet.isInitial = function() {
+    if (currentFrame)
+        return currentFrame.isInitial;
+};
 
 /*
  * Replace ko.subscribable.fn.subscribe with one where change events are deferred
  */
 var oldSubscribe = subFnObj[subFnName];    // Save old subscribe function
-subFnObj[subFnName] = function (callback, callbackTarget, event, deferUpdates, computed) {
+subFnObj[subFnName] = subFnObj.subscribe = function (callback, callbackTarget, event, deferUpdates, computed) {
     event = event || 'change';
     var newCallback;
     if (!computed) {
@@ -379,7 +394,8 @@ subFnObj.getDependents = function() {
     return this.dependents ? [].concat(this.dependents) : [];
 }
 // Update dispose function to clean up pointers to dependents
-subscriptionProto[subDisposeName] = function() {
+var oldSubDispose = subscriptionProto[subDisposeName];
+subscriptionProto[subDisposeName] = subscriptionProto.dispose = function() {
     oldSubDispose.call(this);
     if (this.dependent && this.event == 'change')
         ko.utils.arrayRemoveItem(this.target.dependents, this.dependent);
@@ -526,13 +542,17 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
             // Initially, we assume that none of the subscriptions are still being used (i.e., all are candidates for disposal).
             // Then, during evaluation, we cross off any that are in fact still being used.
             var disposalCandidates = ko.utils.objectMap(_subscriptionsToDependencies, function() {return true;}), numToDispose = _dependenciesCount;
-            depDet[depDetBeginName](function(subscribable, id) {
-                if (disposalCandidates[id]) {
-                    disposalCandidates[id] = undefined;  // Don't want to dispose this subscription, as it's still being used
-                    numToDispose--;
-                } else {
-                    addDependency(subscribable, id); // Brand new subscription - add it
-                }
+            depDet[depDetBeginName]({
+                callback: function(subscribable, id) {
+                    if (disposalCandidates[id]) {
+                        disposalCandidates[id] = undefined;  // Don't want to dispose this subscription, as it's still being used
+                        numToDispose--;
+                    } else {
+                        addDependency(subscribable, id); // Brand new subscription - add it
+                    }
+                },
+                computed: dependentObservable,
+                isInitial: !_dependenciesCount        // If we're evaluating when there are no previous dependencies, it must be the first time
             });
 
             var newValue = readFunction.call(evaluatorFunctionTarget);
@@ -570,7 +590,11 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     function evaluateInitial() {
         _dontEvaluate = true;
         try {
-            depDet[depDetBeginName](addDependency);
+            depDet[depDetBeginName]({
+                callback: addDependency,
+                computed: dependentObservable,
+                isInitial: true
+            });
             dependentObservable._latestValue = _latestValue = readFunction.call(evaluatorFunctionTarget);
         } finally {
             depDet.end();
@@ -652,6 +676,18 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         }
     }
 
+    // Set properties of returned function
+    ko.subscribable.call(dependentObservable);
+    ko.utils.extend(dependentObservable, newComputed.fn);
+
+    dependentObservable[peekName] = dependentObservable.peek = peek;
+    dependentObservable[getDependenciesCountName] = dependentObservable.getDependenciesCount = function () { return _dependenciesCount; };
+    dependentObservable[hasWriteFunctionName] = dependentObservable.hasWriteFunction = typeof writeFunction === 'function';
+    dependentObservable[disposeName] = dependentObservable.dispose = function () { dispose(); };
+    dependentObservable[isActiveName] = dependentObservable.isActive = isActive;
+    dependentObservable.activeWhen = activeWhen;
+    dependentObservable.getDependencies = getDependencies;
+
     // Evaluate, unless deferEvaluation is true
     if (!isDisposed() && options.deferEvaluation !== true)
         evaluateInitial();
@@ -666,18 +702,6 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         ko.utils.domNodeDisposal.addDisposeCallback(disposeWhenNodeIsRemoved, dispose);
     }
 
-    // Set properties of returned function
-    ko.subscribable.call(dependentObservable);
-    ko.utils.extend(dependentObservable, newComputed.fn);
-
-    dependentObservable[peekName] = dependentObservable.peek = peek;
-    dependentObservable[getDependenciesCountName] = dependentObservable.getDependenciesCount = function () { return _dependenciesCount; };
-    dependentObservable[hasWriteFunctionName] = dependentObservable.hasWriteFunction = typeof writeFunction === 'function';
-    dependentObservable[disposeName] = dependentObservable.dispose = function () { dispose(); };
-    dependentObservable[isActiveName] = dependentObservable.isActive = isActive;
-    dependentObservable.activeWhen = activeWhen;
-    dependentObservable.getDependencies = getDependencies;
-
     return dependentObservable;
 };
 
@@ -688,7 +712,9 @@ newComputed.fn[koProtoName] = newComputed;
 newComputed.deferUpdates = true;
 
 // Make all pointers to ko.computed point to the new one
-ko[computedName] = ko.computed = ko.dependentObservable = newComputed;
+ko.utils.arrayForEach(computedNames, function(name) {
+    ko[name] = newComputed;
+});
 
 // Clear objects references we don't need anymore
 oldComputed = computedProto = null;
