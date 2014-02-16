@@ -105,6 +105,8 @@ describe("Throttled dependent observables", function() {
 describe('Rate-limited', function() {
     beforeEach(function() {
         jasmine.Clock.useMock();
+        this.restoreAfter(ko.computed, 'deferUpdates');
+        ko.computed.deferUpdates = false;
     });
 
     describe('Subscribable', function() {

@@ -281,7 +281,8 @@ var nodeInDocName = findNameMethodSignatureContaining(ko.utils, 'documentElement
 
 // Find the name of the ko.subscribable.fn.subscribe function
 var subFnObj = ko.subscribable.fn,
-    subFnName = findNameMethodSignatureContaining(subFnObj, '.bind(');
+    subFnName = findNameMethodSignatureContaining(subFnObj, '.bind('),
+    subLimitName = findNameMethodSignatureContaining(subFnObj, 'notifySubscribers');
 
 // Find the name of ko.subscription.dispose
 var subscription = new ko.subscribable().subscribe(),
@@ -290,6 +291,13 @@ var subscription = new ko.subscribable().subscribe(),
 subscription.dispose();
 subscription = null;
 
+var rateLimitedBeforeChangeName, rateLimitedChangeName;
+if (subLimitName && ko.extenders.rateLimit) {
+    var rateLimitedSubscribable = new ko.subscribable().extend({rateLimit:1});
+    rateLimitedChangeName = findNameMethodSignatureContaining(rateLimitedSubscribable, '=!0') || '_rateLimitedChange';
+    rateLimitedBeforeChangeName = findNameMethodSignatureContaining(rateLimitedSubscribable, '||(') || '_rateLimitedBeforeChange';
+    rateLimitedSubscribable = null;
+}
 
 /*
  * Update dependencyDetection to use an id for each observable
@@ -476,9 +484,11 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         if (throttleEvaluationTimeout && throttleEvaluationTimeout >= 0) {
             clearTimeout(evaluationTimeoutInstance);
             evaluationTimeoutInstance = ko.evaluateAsynchronously(evaluateImmediate, throttleEvaluationTimeout);
-        } else if ((newComputed.deferUpdates && dependentObservable.deferUpdates !== false) || dependentObservable.deferUpdates)
+        } else if (dependentObservable._evalRateLimited) {
+            dependentObservable._evalRateLimited();
+        } else if ((newComputed.deferUpdates && dependentObservable.deferUpdates !== false) || dependentObservable.deferUpdates) {
             shouldNotify = ko.tasks.processDelayed(evaluateImmediate, {node: disposeWhenNodeIsRemoved});
-        else if (_needsEvaluation) {
+        } else if (_needsEvaluation) {
             evaluateImmediate();
             shouldNotify = false;
         }
@@ -601,7 +611,13 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
 
                 _latestValue = newValue;
                 dependentObservable._latestValue = _latestValue;
-                dependentObservable.notifySubscribers(_latestValue);
+
+                // If rate-limited, the notification will happen within the limit function. Otherwise,
+                // notify as soon as the value changes. Check specifically for the throttle setting since
+                // it overrides rateLimit.
+                if (!dependentObservable._evalRateLimited || dependentObservable.throttleEvaluation) {
+                    dependentObservable.notifySubscribers(_latestValue);
+                }
             }
         } finally {
             _dontEvaluate = false;
@@ -652,7 +668,9 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     }
 
     function peek() {
-        if (_needsEvaluation || _possiblyNeedsEvaluation)
+        // Peek won't re-evaluate, except to get the initial value when "deferEvaluation" is set.
+        // That's the only time that both of these conditions will be satisfied.
+        if ((_needsEvaluation || _possiblyNeedsEvaluation) && !_dependenciesCount)
             evaluateImmediate(true);
         return _latestValue;
     }
@@ -710,6 +728,24 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     dependentObservable[isActiveName] = dependentObservable.isActive = isActive;
     dependentObservable.activeWhen = activeWhen;
     dependentObservable.getDependencies = getDependencies;
+
+    if (subLimitName) {
+        // Replace the limit function with one that delays evaluation as well.
+        var originalLimit = dependentObservable[subLimitName];
+        dependentObservable[subLimitName] = function(limitFunction) {
+            originalLimit.call(dependentObservable, limitFunction);
+            dependentObservable._evalRateLimited = function() {
+                _possiblyNeedsEvaluation = _needsEvaluation = false;    // Mark as clean (so beforeChange subscribers won't evaluate computed)
+                dependentObservable[rateLimitedBeforeChangeName](_latestValue);
+
+                _needsEvaluation = true;    // Mark as dirty
+
+                // Pass the observable to the rate-limit code, which will access it when
+                // it's time to do the notification.
+                dependentObservable[rateLimitedChangeName](dependentObservable);
+            }
+        };
+    }
 
     // Evaluate, unless deferEvaluation is true
     if (!isDisposed() && options.deferEvaluation !== true)
