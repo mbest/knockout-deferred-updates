@@ -2,7 +2,7 @@
  * @license Deferred Updates plugin for Knockout http://knockoutjs.com/
  * (c) Michael Best, Steven Sanderson
  * License: MIT (http://www.opensource.org/licenses/mit-license.php)
- * Version 3.0.1
+ * Version 3.1.0
  */
 
 (function(factory) {
@@ -185,29 +185,28 @@ ko.tasks = (function() {
 /*
  * Add ko.utils.objectForEach and ko.utils.objectMap if not present
  */
-if (!ko.utils.objectForEach) {
-    ko.utils.objectForEach = function(obj, action) {
-        for (var prop in obj) {
-            if (obj.hasOwnProperty(prop)) {
-                action(prop, obj[prop]);
-            }
+var ko_utils = ko.utils;
+var ko_utils_objectForEach = ko_utils.objectForEach || function(obj, action) {
+    for (var prop in obj) {
+        if (obj.hasOwnProperty(prop)) {
+            action(prop, obj[prop]);
         }
-    };
-}
+    }
+};
 
-if (!ko.utils.objectMap) {
-    ko.utils.objectMap = function(source, mapping) {
-        if (!source)
-            return source;
-        var target = {};
-        for (var prop in source) {
-            if (source.hasOwnProperty(prop)) {
-                target[prop] = mapping(source[prop], prop, source);
-            }
+var ko_utils_objectMap = ko_utils.objectMap || function(source, mapping) {
+    if (!source)
+        return source;
+    var target = {};
+    for (var prop in source) {
+        if (source.hasOwnProperty(prop)) {
+            target[prop] = mapping(source[prop], prop, source);
         }
-        return target;
-    };
-}
+    }
+    return target;
+};
+
+var ko_utils_arrayForEach = ko_utils.arrayForEach;
 
 var setPrototypeOfOrExtend =
     ({ __proto__: [] } instanceof Array) ?
@@ -215,7 +214,7 @@ var setPrototypeOfOrExtend =
             obj.__proto__ = proto;
             return obj;
         } :
-        ko.utils.extend;
+        ko_utils.extend;
 
 // Helper functions for sniffing the minified Knockout code
 function findNameMethodSignatureContaining(obj, match) {
@@ -277,7 +276,7 @@ if (hasWriteFunctionName != 'hasWriteFunction') {
 }
 
 // Find ko.utils.domNodeIsAttachedToDocument
-var nodeInDocName = findNameMethodSignatureContaining(ko.utils, 'documentElement)') || findNameMethodSignatureContaining(ko.utils, 'ocument)');
+var nodeInDocName = findNameMethodSignatureContaining(ko_utils, 'documentElement)') || findNameMethodSignatureContaining(ko_utils, 'ocument)');
 
 // Find the name of the ko.subscribable.fn.subscribe function
 var subFnObj = ko.subscribable.fn,
@@ -410,7 +409,7 @@ var oldSubDispose = subscriptionProto[subDisposeName];
 subscriptionProto[subDisposeName] = subscriptionProto.dispose = function() {
     oldSubDispose.call(this);
     if (this.dependent && this.event == 'change')
-        ko.utils.arrayRemoveItem(this.target.dependents, this.dependent);
+        ko_utils.arrayRemoveItem(this.target.dependents, this.dependent);
 }
 
 // Helper function for subscribing to two events for computed observables.
@@ -460,10 +459,10 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     var _subscriptionsToDependencies = {}, _dependenciesCount = 0, othersToDispose = [];
     function disposeAllSubscriptionsToDependencies() {
         _isDisposed = true;
-        ko.utils.objectForEach(_subscriptionsToDependencies, function (id, subscription) {
+        ko_utils_objectForEach(_subscriptionsToDependencies, function (id, subscription) {
             subscription.dispose();
         });
-        ko.utils.arrayForEach(othersToDispose, function (subscription) {
+        ko_utils_arrayForEach(othersToDispose, function (subscription) {
             subscription.dispose();
         });
         _subscriptionsToDependencies = {};
@@ -527,7 +526,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
 
     function getDependencies() {
         var result = [];
-        ko.utils.objectForEach(_subscriptionsToDependencies, function(id, item) {
+        ko_utils_objectForEach(_subscriptionsToDependencies, function(id, item) {
             result.push(item.target);
         });
         return result;
@@ -597,7 +596,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
 
                 // For each subscription no longer being used, remove it from the active subscriptions list and dispose it
                 if (disposalCount) {
-                    ko.utils.objectForEach(disposalCandidates, function(id, toDispose) {
+                    ko_utils_objectForEach(disposalCandidates, function(id, toDispose) {
                         toDispose.dispose();
                     });
                 }
@@ -712,7 +711,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         // by application code, as it's likely to change in a future version of KO.
         if (disposeWhenNodeIsRemoved.nodeType) {
             disposeWhen = function () {
-                return !ko.utils[nodeInDocName](disposeWhenNodeIsRemoved) || (disposeWhenOption && disposeWhenOption());
+                return !ko_utils[nodeInDocName](disposeWhenNodeIsRemoved) || (disposeWhenOption && disposeWhenOption());
             };
         }
     }
@@ -755,10 +754,10 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     // removed using ko.removeNode. But skip if isActive is false (there will never be any dependencies to dispose).
     if (disposeWhenNodeIsRemoved && isActive()) {
         dispose = function() {
-            ko.utils.domNodeDisposal.removeDisposeCallback(disposeWhenNodeIsRemoved, dispose);
+            ko_utils.domNodeDisposal.removeDisposeCallback(disposeWhenNodeIsRemoved, dispose);
             disposeAllSubscriptionsToDependencies();
         };
-        ko.utils.domNodeDisposal.addDisposeCallback(disposeWhenNodeIsRemoved, dispose);
+        ko_utils.domNodeDisposal.addDisposeCallback(disposeWhenNodeIsRemoved, dispose);
     }
 
     return dependentObservable;
@@ -771,7 +770,7 @@ newComputed.fn[koProtoName] = newComputed;
 newComputed.deferUpdates = true;
 
 // Make all pointers to ko.computed point to the new one
-ko.utils.arrayForEach(computedNames, function(name) {
+ko_utils_arrayForEach(computedNames, function(name) {
     ko[name] = newComputed;
 });
 
