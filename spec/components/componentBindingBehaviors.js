@@ -37,14 +37,14 @@ describe('Components: Component binding', function() {
             .toThrowContaining('No component name specified');
     });
 
-    xit('Throws if the component name is unknown', function() {
+    it('Throws if the component name is unknown', function() {
         expect(function() {
             ko.applyBindings(outerViewModel, testNode);
             jasmine.Clock.tick(1);
         }).toThrow("Unknown component 'test-component'");
     });
 
-    xit('Throws if the component definition has no template', function() {
+    it('Throws if the component definition has no template', function() {
         ko.components.register(testComponentName, {});
         expect(function() {
             ko.applyBindings(outerViewModel, testNode);
@@ -428,7 +428,7 @@ describe('Components: Component binding', function() {
         expect(createViewModelCallCount).toBe(1); // ... and we didn't rebuild the component
     });
 
-    xit('Disregards component load completions that are no longer relevant', function() {
+    it('Disregards component load completions that are no longer relevant', function() {
         // This spec addresses the possibility of a race condition: if you change the
         // component name faster than the component loads complete, then we need to
         // ignore any load completions that don't correspond to the latest name.
@@ -486,6 +486,7 @@ describe('Components: Component binding', function() {
         // Notice this happens synchronously (at least, relative to the time now), because the completion
         // is already asynchronous relative to when it began.
         requireCallbacks['module-3'](testViewModel3);
+        jasmine.Clock.tick(1);  // deferred updates requires extra time to update
         expect(constructorCallLog).toEqual([ [3, testComponentParams] ]);
         expect(testNode).toContainText('Component 3 template');
         var viewModelInstance = ko.dataFor(testNode.firstChild.firstChild);
