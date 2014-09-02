@@ -47,7 +47,7 @@ describe('Binding: Selected Options', function() {
         expect(selection()[1] === cObject).toEqual(true); // Also check with strict equality, because we don't want to falsely accept [object Object] == cObject
     });
 
-    xit('Should update the model when selection in the SELECT node changes for non-observable property values', function () {
+    it('Should update the model when selection in the SELECT node changes for non-observable property values', function () {
         function setMultiSelectOptionSelectionState(optionElement, state) {
             // Workaround an IE 6 bug (http://benhollis.net/experiments/browserdemos/ie6-adding-options.html)
             if (/MSIE 6/i.test(navigator.userAgent))

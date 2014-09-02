@@ -2,7 +2,7 @@
  * @license Deferred Updates plugin for Knockout http://knockoutjs.com/
  * (c) Michael Best, Steven Sanderson
  * License: MIT (http://www.opensource.org/licenses/mit-license.php)
- * Version 3.1.0
+ * Version 3.2.0
  */
 
 (function(factory) {
@@ -25,8 +25,8 @@ var undefined;
 if (!ko) {
     throw Error('Deferred Updates requires Knockout');
 }
-if (ko.version >= '3.2.0') {
-    throw Error('This version of Deferred Updates supports Knockout version 3.1 and lower.');
+if (ko.version >= '3.3.0') {
+    throw Error('This version of Deferred Updates supports Knockout version 3.2 and lower.');
 }
 
 /*
@@ -298,6 +298,14 @@ if (subLimitName && ko.extenders.rateLimit) {
     rateLimitedSubscribable = null;
 }
 
+var beforeSubscriptionAddName, afterSubscriptionRemoveName;
+if (ko.pureComputed) {
+    var pComp = ko.pureComputed(function() {});
+    beforeSubscriptionAddName = findNameMethodSignatureContaining(pComp, '!1,') || 'beforeSubscriptionAdd';
+    afterSubscriptionRemoveName = findNameMethodSignatureContaining(pComp, '()||') || 'afterSubscriptionRemove';
+    pComp = null;
+}
+
 /*
  * Update dependencyDetection to use an id for each observable
  */
@@ -436,7 +444,9 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         _dontEvaluate = false,
         _suppressDisposalUntilDisposeWhenReturnsFalse = false,
         _isDisposed = false,
-        readFunction = evaluatorFunctionOrOptions;
+        readFunction = evaluatorFunctionOrOptions,
+        pure = false,
+        isSleeping = false;
 
     if (readFunction && typeof readFunction == 'object') {
         // Single-parameter syntax - everything is on this 'options' param
@@ -448,30 +458,40 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         if (!readFunction)
             readFunction = options.read;
     }
-    // By here, 'options' is always non-null
     if (typeof readFunction != 'function')
         throw Error('Pass a function that returns the value of the ko.computed');
 
-    var writeFunction = options.write;
-    if (!evaluatorFunctionTarget)
-        evaluatorFunctionTarget = options.owner;
+    function addSubscriptionToDependency(subscribable, id) {
+        if (!_subscriptionsToDependencies[id]) {
+            var subscription;
+            if (subscribable[koProtoName] === newComputed) {
+                 subscription = subscribeToComputed(subscribable, martAsDirty, markAsChanged, dependentObservable);
+            } else {
+                subscription = subscribable.subscribe(markAsChanged, null, 'change', false, dependentObservable);
+            }
+            _subscriptionsToDependencies[id] = subscription;
+            _dependenciesCount++;
+        }
+    }
 
-    var _subscriptionsToDependencies = {}, _dependenciesCount = 0, othersToDispose = [];
     function disposeAllSubscriptionsToDependencies() {
-        _isDisposed = true;
         ko_utils_objectForEach(_subscriptionsToDependencies, function (id, subscription) {
             subscription.dispose();
         });
+        _subscriptionsToDependencies = {};
+    }
+
+    function disposeComputed() {
+        disposeAllSubscriptionsToDependencies();
+        _dependenciesCount = 0;
+        _isDisposed = true;
         ko_utils_arrayForEach(othersToDispose, function (subscription) {
             subscription.dispose();
         });
-        _subscriptionsToDependencies = {};
-        _dependenciesCount = 0;
         othersToDispose = [];
         _possiblyNeedsEvaluation = _needsEvaluation = false;
     }
 
-    var evaluationTimeoutInstance = null;
     function evaluatePossiblyAsync(value, event) {
         var isDirtyEvent = (event == 'dirty');
         var shouldNotify = isDirtyEvent && !_possiblyNeedsEvaluation && !_needsEvaluation;
@@ -511,19 +531,6 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         evaluatePossiblyAsync(value, 'dirty');
     }
 
-    function addSubscriptionToDependency(subscribable, id) {
-        if (!_subscriptionsToDependencies[id]) {
-            var subscription;
-            if (subscribable[koProtoName] === newComputed) {
-                 subscription = subscribeToComputed(subscribable, martAsDirty, markAsChanged, dependentObservable);
-            } else {
-                subscription = subscribable.subscribe(markAsChanged, null, 'change', false, dependentObservable);
-            }
-            _subscriptionsToDependencies[id] = subscription;
-            _dependenciesCount++;
-        }
-    }
-
     function getDependencies() {
         var result = [];
         ko_utils_objectForEach(_subscriptionsToDependencies, function(id, item) {
@@ -550,8 +557,8 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         }
     }
 
-    function evaluateImmediate(force) {
-        if (_dontEvaluate || (!_needsEvaluation && !(force === true))) {    // test for exact *true* value since Firefox will pass an integer value when this function is called through setTimeout
+    function evaluateImmediate(suppressChangeNotification) {
+        if (_dontEvaluate || (!_needsEvaluation && !(suppressChangeNotification === true))) {    // test for exact *true* value since Firefox will pass an integer value when this function is called through setTimeout
             _possiblyNeedsEvaluation = _needsEvaluation;
             return;
         }
@@ -562,67 +569,88 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         }
 
         _dontEvaluate = true;
-        try {
-            // Initially, we assume that none of the subscriptions are still being used (i.e., all are candidates for disposal).
-            // Then, during evaluation, we cross off any that are in fact still being used.
-            var disposalCandidates = _subscriptionsToDependencies, disposalCount = _dependenciesCount;
-            depDet[depDetBeginName]({
-                callback: function(subscribable, id) {
-                    if (!_isDisposed) {
-                        if (disposalCount && disposalCandidates[id]) {
-                            // Don't want to dispose this subscription, as it's still being used
-                            _subscriptionsToDependencies[id] = disposalCandidates[id];
-                            ++_dependenciesCount;
-                            delete disposalCandidates[id];
-                            --disposalCount;
-                        } else {
-                            // Brand new subscription - add it
-                            addSubscriptionToDependency(subscribable, id);
-                        }
-                    }
-                },
-                computed: dependentObservable,
-                isInitial: !_dependenciesCount        // If we're evaluating when there are no previous dependencies, it must be the first time
-            });
 
-            _subscriptionsToDependencies = {};
-            _dependenciesCount = 0;
-
+        // When sleeping, recalculate the value and return.
+        if (isSleeping) {
             try {
-                var newValue = evaluatorFunctionTarget ? readFunction.call(evaluatorFunctionTarget) : readFunction();
-
+                var dependencyTracking = {};
+                depDet[depDetBeginName]({
+                    callback: function (subscribable, id) {
+                        if (!dependencyTracking[id]) {
+                            dependencyTracking[id] = 1;
+                            ++_dependenciesCount;
+                        }
+                    },
+                    computed: dependentObservable,
+                    isInitial: undefined
+                });
+                _dependenciesCount = 0;
+                _latestValue = readFunction.call(evaluatorFunctionTarget);
             } finally {
                 depDet.end();
+                _dontEvaluate = false;
+            }
+        } else {
+            try {
+                // Initially, we assume that none of the subscriptions are still being used (i.e., all are candidates for disposal).
+                // Then, during evaluation, we cross off any that are in fact still being used.
+                var disposalCandidates = _subscriptionsToDependencies, disposalCount = _dependenciesCount;
+                depDet[depDetBeginName]({
+                    callback: function(subscribable, id) {
+                        if (!_isDisposed) {
+                            if (disposalCount && disposalCandidates[id]) {
+                                // Don't want to dispose this subscription, as it's still being used
+                                _subscriptionsToDependencies[id] = disposalCandidates[id];
+                                ++_dependenciesCount;
+                                delete disposalCandidates[id];
+                                --disposalCount;
+                            } else {
+                                // Brand new subscription - add it
+                                addSubscriptionToDependency(subscribable, id);
+                            }
+                        }
+                    },
+                    computed: dependentObservable,
+                    isInitial: pure ? undefined : !_dependenciesCount        // If we're evaluating when there are no previous dependencies, it must be the first time
+                });
 
-                // For each subscription no longer being used, remove it from the active subscriptions list and dispose it
-                if (disposalCount) {
-                    ko_utils_objectForEach(disposalCandidates, function(id, toDispose) {
-                        toDispose.dispose();
-                    });
+                _subscriptionsToDependencies = {};
+                _dependenciesCount = 0;
+
+                try {
+                    var newValue = evaluatorFunctionTarget ? readFunction.call(evaluatorFunctionTarget) : readFunction();
+
+                } finally {
+                    depDet.end();
+
+                    // For each subscription no longer being used, remove it from the active subscriptions list and dispose it
+                    if (disposalCount) {
+                        ko_utils_objectForEach(disposalCandidates, function(id, toDispose) {
+                            toDispose.dispose();
+                        });
+                    }
+
+                    // For compatibility with Knockout 2.3.0, mark computed as evaluated even if the evaluator threw an exception
+                    _possiblyNeedsEvaluation = _needsEvaluation = false;
                 }
 
-                // For compatibility with Knockout 2.3.0, mark computed as evaluated even if the evaluator threw an exception
-                _possiblyNeedsEvaluation = _needsEvaluation = false;
-            }
+                if (!dependentObservable.equalityComparer || !dependentObservable.equalityComparer(_latestValue, newValue)) {
+                    dependentObservable.notifySubscribers(_latestValue, 'beforeChange');
 
-            if (!dependentObservable.equalityComparer || !dependentObservable.equalityComparer(_latestValue, newValue)) {
-                dependentObservable.notifySubscribers(_latestValue, 'beforeChange');
+                    _latestValue = newValue;
+                    dependentObservable._latestValue = _latestValue;
 
-                _latestValue = newValue;
-                dependentObservable._latestValue = _latestValue;
-
-                // If rate-limited, the notification will happen within the limit function. Otherwise,
-                // notify as soon as the value changes. Check specifically for the throttle setting since
-                // it overrides rateLimit.
-                if (!dependentObservable._evalRateLimited || dependentObservable.throttleEvaluation) {
-                    dependentObservable.notifySubscribers(_latestValue);
+                    if (suppressChangeNotification !== true) {  // Check for strict true value since setTimeout in Firefox passes a numeric value to the function
+                        dependentObservable.notifySubscribers(_latestValue);
+                    }
                 }
+            } finally {
+                _dontEvaluate = false;
             }
-        } finally {
-            _dontEvaluate = false;
         }
 
-        return;
+        if (!_dependenciesCount)
+            dispose();
     }
 
     function evaluateInitial() {
@@ -638,6 +666,9 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
             depDet.end();
             _needsEvaluation = _dontEvaluate = false;
         }
+
+        if (!_dependenciesCount)
+            dispose();
     }
 
     function dependentObservable() {
@@ -659,18 +690,18 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
             return this; // Permits chained assignments
         } else {
             // Reading the value
-            if (_needsEvaluation || _possiblyNeedsEvaluation)
-                evaluateImmediate(true);
             depDet[depDetRegisterName](dependentObservable);
+            if (_needsEvaluation || _possiblyNeedsEvaluation)
+                evaluateImmediate(true /* suppressChangeNotification */);
             return _latestValue;
         }
     }
 
     function peek() {
-        // Peek won't re-evaluate, except to get the initial value when "deferEvaluation" is set.
-        // That's the only time that both of these conditions will be satisfied.
+        // Peek won't re-evaluate, except to get the initial value when "deferEvaluation" is set, or while the computed is sleeping.
+        // Those are the only times that both of these conditions will be satisfied.
         if ((_needsEvaluation || _possiblyNeedsEvaluation) && !_dependenciesCount)
-            evaluateImmediate(true);
+            evaluateImmediate(true /* suppressChangeNotification */);
         return _latestValue;
     }
 
@@ -692,29 +723,19 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         }
     }
 
-    var disposeWhenNodeIsRemoved = options[disposeWhenNodeIsRemovedName] || options.disposeWhenNodeIsRemoved || null,
+    // By here, "options" is always non-null
+    var writeFunction = options.write,
+        disposeWhenNodeIsRemoved = options[disposeWhenNodeIsRemovedName] || options.disposeWhenNodeIsRemoved || null,
         disposeWhenOption = options[disposeWhenName] || options.disposeWhen,
         disposeWhen = disposeWhenOption,
-        dispose = disposeAllSubscriptionsToDependencies;
+        dispose = disposeComputed,
+        _subscriptionsToDependencies = {},
+        _dependenciesCount = 0,
+        othersToDispose = [],
+        evaluationTimeoutInstance = null;
 
-    // Add a "disposeWhen" callback that, on each evaluation, disposes if the node was removed without using ko.removeNode.
-    if (disposeWhenNodeIsRemoved) {
-        // Since this computed is associated with a DOM node, and we don't want to dispose the computed
-        // until the DOM node is *removed* from the document (as opposed to never having been in the document),
-        // we'll prevent disposal until "disposeWhen" first returns false.
-        _suppressDisposalUntilDisposeWhenReturnsFalse = true;
-
-        // Only watch for the node's disposal if the value really is a node. It might not be,
-        // e.g., { disposeWhenNodeIsRemoved: true } can be used to opt into the "only dispose
-        // after first false result" behaviour even if there's no specific node to watch. This
-        // technique is intended for KO's internal use only and shouldn't be documented or used
-        // by application code, as it's likely to change in a future version of KO.
-        if (disposeWhenNodeIsRemoved.nodeType) {
-            disposeWhen = function () {
-                return !ko_utils[nodeInDocName](disposeWhenNodeIsRemoved) || (disposeWhenOption && disposeWhenOption());
-            };
-        }
-    }
+    if (!evaluatorFunctionTarget)
+        evaluatorFunctionTarget = options.owner;
 
     // Set properties of returned function
     ko.subscribable.call(dependentObservable);
@@ -746,16 +767,61 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         };
     }
 
-    // Evaluate, unless deferEvaluation is true
-    if (!isDisposed() && options.deferEvaluation !== true)
+    if (beforeSubscriptionAddName) {
+        if (options.pure) {
+            pure = true;
+            isSleeping = true;     // Starts off sleeping; will awake on the first subscription
+            dependentObservable[beforeSubscriptionAddName] = function () {
+                // If asleep, wake up the computed and evaluate to register any dependencies.
+                if (isSleeping) {
+                    isSleeping = false;
+                    evaluateImmediate(true /* suppressChangeNotification */);
+                }
+            }
+            dependentObservable[afterSubscriptionRemoveName] = function () {
+                if (!dependentObservable.getSubscriptionsCount()) {
+                    disposeAllSubscriptionsToDependencies();
+                    isSleeping = _needsEvaluation = true;
+                }
+            }
+        } else if (options.deferEvaluation) {
+            // This will force a computed with deferEvaluation to evaluate when the first subscriptions is registered.
+            dependentObservable[beforeSubscriptionAddName] = function () {
+                peek();
+                delete dependentObservable[beforeSubscriptionAddName];
+            }
+        }
+    }
+
+    // Add a "disposeWhen" callback that, on each evaluation, disposes if the node was removed without using ko.removeNode.
+    if (disposeWhenNodeIsRemoved) {
+        // Since this computed is associated with a DOM node, and we don't want to dispose the computed
+        // until the DOM node is *removed* from the document (as opposed to never having been in the document),
+        // we'll prevent disposal until "disposeWhen" first returns false.
+        _suppressDisposalUntilDisposeWhenReturnsFalse = true;
+
+        // Only watch for the node's disposal if the value really is a node. It might not be,
+        // e.g., { disposeWhenNodeIsRemoved: true } can be used to opt into the "only dispose
+        // after first false result" behaviour even if there's no specific node to watch. This
+        // technique is intended for KO's internal use only and shouldn't be documented or used
+        // by application code, as it's likely to change in a future version of KO.
+        if (disposeWhenNodeIsRemoved.nodeType) {
+            disposeWhen = function () {
+                return !ko_utils[nodeInDocName](disposeWhenNodeIsRemoved) || (disposeWhenOption && disposeWhenOption());
+            };
+        }
+    }
+
+    // Evaluate, unless sleeping or deferEvaluation is true
+    if (!isDisposed() && !isSleeping && !options.deferEvaluation)
         evaluateInitial();
 
     // Attach a DOM node disposal callback so that the computed will be proactively disposed as soon as the node is
     // removed using ko.removeNode. But skip if isActive is false (there will never be any dependencies to dispose).
-    if (disposeWhenNodeIsRemoved && isActive()) {
+    if (disposeWhenNodeIsRemoved && isActive() && disposeWhenNodeIsRemoved.nodeType) {
         dispose = function() {
             ko_utils.domNodeDisposal.removeDisposeCallback(disposeWhenNodeIsRemoved, dispose);
-            disposeAllSubscriptionsToDependencies();
+            disposeComputed();
         };
         ko_utils.domNodeDisposal.addDisposeCallback(disposeWhenNodeIsRemoved, dispose);
     }

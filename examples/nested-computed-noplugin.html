@@ -3,11 +3,11 @@
 <head>
   <meta http-equiv="content-type" content="text/html; charset=UTF-8">
   <title>Knockout - Update Test with Nested Observables</title>
-  
-  <script type="text/javascript" src="knockout-2.1.0.js"></script>
+
+  <script type="text/javascript" src="knockout.js"></script>
 
 
-<script type='text/javascript'>//<![CDATA[ 
+<script type='text/javascript'>//<![CDATA[
 window.onload=function(){
 var vm = {
     a: ko.observable(0),
@@ -47,6 +47,37 @@ vm.doUpdate = function() {
     plusminus = !u ? 1 : (u==9) ? -1 : plusminus;
 }
 
+
+ko.subscribable.fn.setLimit = function() {
+    this.limit(function (callback) {
+        var timeoutInstance;
+        return function () {
+            if (!timeoutInstance) {
+                timeoutInstance = setTimeout(function() {
+                    timeoutInstance = undefined;
+                    callback();
+                }, 1);
+            }
+        };
+    });
+}
+
+ko.subscribable.fn.clearLimit = function() {
+    if (this._origNotifySubscribers) {
+        this.notifySubscribers = this._origNotifySubscribers;
+        this._evalRateLimited = null;
+    }
+}
+
+vm.setRateLimit = function(value) {
+    vm.A[value]();
+    vm._B[value]();
+    vm.C[value]();
+    vm.D[value]();
+    vm.E[value]();
+    vm.F[value]();
+}
+
 vm.setThrottle = function(value) {
     vm.A.throttleEvaluation = value;
     vm._B.throttleEvaluation = value;
@@ -59,18 +90,27 @@ vm.setThrottle = function(value) {
 vm.runNormal = function() {
     ko.computed.deferUpdates = false;
     vm.setThrottle(undefined);
+    vm.setRateLimit('clearLimit');
+    vm.doUpdate();
+}
+
+vm.runRateLimit = function() {
+    ko.computed.deferUpdates = false;
+    vm.setThrottle(undefined);
+    vm.setRateLimit('setLimit');
     vm.doUpdate();
 }
 
 vm.runThrottle = function() {
     ko.computed.deferUpdates = false;
     vm.setThrottle(1);
+    vm.setRateLimit('clearLimit');
     vm.doUpdate();
 }
 
 vm.A = ko.computed(function() {
-    var result = '' + vm.a();
     firstUpdate();
+    var result = '' + vm.a();
     pushUpdate('A', result, 'green');
     return result;
 }, null, {deferEvaluation:true});
@@ -116,7 +156,7 @@ vm.F();
 
 ko.applyBindings(vm);
 
-}//]]>  
+}//]]>
 
 </script>
 
@@ -125,11 +165,12 @@ ko.applyBindings(vm);
 <body>
   Update:
 <input type="button" value="Normal" data-bind="click: runNormal"/>
+<input type="button" value="With rateLimit (setTimeout)" data-bind="click: runRateLimit"/>
 <input type="button" value="With Throttle (setTimeout)" data-bind="click: runThrottle"/>
 <ol id="updates">
 </ol>
 
-  
+
 </body>
 
 
