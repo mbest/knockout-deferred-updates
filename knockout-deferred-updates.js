@@ -8,7 +8,7 @@
 (function(factory) {
     if (typeof require === 'function' && typeof exports === 'object' && typeof module === 'object') {
         // [1] CommonJS/Node.js
-        factory(require('knockout'));
+        module.exports = factory(require('knockout'));
     } else if (typeof define === 'function' && define.amd) {
         // [2] AMD anonymous module
         define(['knockout'], factory);
