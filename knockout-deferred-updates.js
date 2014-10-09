@@ -2,7 +2,7 @@
  * @license Deferred Updates plugin for Knockout http://knockoutjs.com/
  * (c) Michael Best, Steven Sanderson
  * License: MIT (http://www.opensource.org/licenses/mit-license.php)
- * Version 3.2.0
+ * Version 3.2.1
  */
 
 (function(factory) {
@@ -439,6 +439,7 @@ function subscribeToComputed(target, dirtyCallback, changeCallback, subscriber) 
  */
 var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget, options) {
     var _latestValue,
+        _previousValue,
         _possiblyNeedsEvaluation = false,
         _needsEvaluation = true,
         _dontEvaluate = false,
@@ -502,7 +503,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
         var throttleEvaluationTimeout = dependentObservable.throttleEvaluation;
         if (throttleEvaluationTimeout && throttleEvaluationTimeout >= 0) {
             clearTimeout(evaluationTimeoutInstance);
-            evaluationTimeoutInstance = ko.evaluateAsynchronously(evaluateImmediate, throttleEvaluationTimeout);
+            evaluationTimeoutInstance = ko.evaluateAsynchronously(function() {evaluateImmediate()}, throttleEvaluationTimeout);
         } else if (dependentObservable._evalRateLimited) {
             dependentObservable._evalRateLimited();
         } else if ((newComputed.deferUpdates && dependentObservable.deferUpdates !== false) || dependentObservable.deferUpdates) {
@@ -558,8 +559,16 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
     }
 
     function evaluateImmediate(suppressChangeNotification) {
-        if (_dontEvaluate || (!_needsEvaluation && !(suppressChangeNotification === true))) {    // test for exact *true* value since Firefox will pass an integer value when this function is called through setTimeout
+        if (_dontEvaluate) {
+            return;
+        }
+
+        if (!_needsEvaluation && !suppressChangeNotification) {
             _possiblyNeedsEvaluation = _needsEvaluation;
+            if (!dependentObservable.equalityComparer || !dependentObservable.equalityComparer(_latestValue, _previousValue)) {
+                _previousValue = _latestValue;
+                dependentObservable.notifySubscribers(_latestValue);
+            }
             return;
         }
 
@@ -585,7 +594,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
                     isInitial: undefined
                 });
                 _dependenciesCount = 0;
-                _latestValue = readFunction.call(evaluatorFunctionTarget);
+                dependentObservable._latestValue = _latestValue = readFunction.call(evaluatorFunctionTarget);
             } finally {
                 depDet.end();
                 _dontEvaluate = false;
@@ -594,7 +603,10 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
             try {
                 // Initially, we assume that none of the subscriptions are still being used (i.e., all are candidates for disposal).
                 // Then, during evaluation, we cross off any that are in fact still being used.
-                var disposalCandidates = _subscriptionsToDependencies, disposalCount = _dependenciesCount;
+                var disposalCandidates = _subscriptionsToDependencies,
+                    disposalCount = _dependenciesCount,
+                    isInitial = pure ? undefined : !_dependenciesCount;   // If we're evaluating when there are no previous dependencies, it must be the first time
+
                 depDet[depDetBeginName]({
                     callback: function(subscribable, id) {
                         if (!_isDisposed) {
@@ -611,7 +623,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
                         }
                     },
                     computed: dependentObservable,
-                    isInitial: pure ? undefined : !_dependenciesCount        // If we're evaluating when there are no previous dependencies, it must be the first time
+                    isInitial: isInitial
                 });
 
                 _subscriptionsToDependencies = {};
@@ -640,9 +652,13 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
                     _latestValue = newValue;
                     dependentObservable._latestValue = _latestValue;
 
-                    if (suppressChangeNotification !== true) {  // Check for strict true value since setTimeout in Firefox passes a numeric value to the function
+                    if (!suppressChangeNotification) {
+                        _previousValue = _latestValue;
                         dependentObservable.notifySubscribers(_latestValue);
                     }
+                }
+                if (isInitial) {
+                    _previousValue = _latestValue;
                 }
             } finally {
                 _dontEvaluate = false;
@@ -661,7 +677,7 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
                 computed: dependentObservable,
                 isInitial: true
             });
-            dependentObservable._latestValue = _latestValue = readFunction.call(evaluatorFunctionTarget);
+            dependentObservable._latestValue = _latestValue = _previousValue = readFunction.call(evaluatorFunctionTarget);
         } finally {
             depDet.end();
             _needsEvaluation = _dontEvaluate = false;
@@ -776,12 +792,14 @@ var newComputed = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget,
                 if (isSleeping) {
                     isSleeping = false;
                     evaluateImmediate(true /* suppressChangeNotification */);
+                    _previousValue = _latestValue;
                 }
             }
             dependentObservable[afterSubscriptionRemoveName] = function () {
                 if (!dependentObservable.getSubscriptionsCount()) {
                     disposeAllSubscriptionsToDependencies();
                     isSleeping = _needsEvaluation = true;
+                    _previousValue = undefined;
                 }
             }
         } else if (options.deferEvaluation) {

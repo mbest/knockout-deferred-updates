@@ -73,6 +73,23 @@ describe("Throttled dependent observables", function() {
         expect(notifiedValues[0]).toEqual('New value');
     	expect(computedNotifiedValues.length).toEqual(1);
     	expect(computedNotifiedValues[0]).toEqual('New value');
+
+        // Mutate and read computed value
+        underlying('Second value');
+        expect(asyncDepObs()).toEqual('Second value');
+        expect(lastUpdateValue).toEqual('Second value');
+
+        lastUpdateValue = undefined;
+        notifiedValues = [];
+        computedNotifiedValues = [];
+
+        // Now wait for throttle timeout
+        jasmine.Clock.tick(100);
+        expect(lastUpdateValue).toBeUndefined(); // Should not update again
+        expect(notifiedValues.length).toEqual(1);
+        expect(notifiedValues[0]).toEqual('Second value');
+    	expect(computedNotifiedValues.length).toEqual(1);
+    	expect(computedNotifiedValues[0]).toEqual('Second value');
     });
 
     it("Should run evaluator only once when dependencies stop updating for the specified timeout duration", function() {

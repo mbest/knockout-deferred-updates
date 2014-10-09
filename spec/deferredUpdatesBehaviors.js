@@ -18,6 +18,69 @@ describe('Deferred Updates', function() {
     });
 
     describe('Computed Observable', function() {
+        it('Should defer notification of changes and minimize evaluation', function () {
+            var timesEvaluated = 0,
+                data = ko.observable('A'),
+                computed = ko.computed(function () { ++timesEvaluated; return data(); }),
+                notifiedValue,
+                subscription = computed.subscribe(function (value) { notifiedValue = value; });
+
+            expect(computed()).toEqual('A');
+            expect(timesEvaluated).toEqual(1);
+            ko.processAllDeferredUpdates();
+            expect(notifiedValue).toEqual(undefined);
+
+            data('B');
+            expect(timesEvaluated).toEqual(1);  // not immediately evaluated
+            expect(computed()).toEqual('B');
+            expect(timesEvaluated).toEqual(2);
+            expect(notifiedValue).toEqual(undefined);
+
+            ko.processAllDeferredUpdates();
+            expect(notifiedValue).toEqual('B');
+        });
+
+        it('Should notify first change of computed with deferEvaluation if value to changed to undefined', function () {
+            var data = ko.observable('A'),
+                computed = ko.computed(data, null, {deferEvaluation: true}),
+                notifiedValue = 'not the right value',
+                subscription = computed.subscribe(function (value) { notifiedValue = value; });
+
+            expect(computed()).toEqual('A');
+
+            data(undefined);
+            expect(computed()).toEqual(undefined);
+
+            ko.processAllDeferredUpdates();
+            expect(notifiedValue).toEqual(undefined);
+        });
+
+        it('Should notify first change to pure computed after awakening if value changed to last notified value', function() {
+            var data = ko.observable('A'),
+                computed = ko.pureComputed(data),
+                notifiedValues = [],
+                subFunc = function (value) { notifiedValues.push(value); },
+                subscription = computed.subscribe(subFunc);
+
+            data('B');
+            expect(computed()).toEqual('B');
+            ko.processAllDeferredUpdates();
+            expect(notifiedValues).toEqual(['B']);
+
+            subscription.dispose();
+            notifiedValues = [];
+            data('C');
+            expect(computed()).toEqual('C');
+            ko.processAllDeferredUpdates();
+            expect(notifiedValues).toEqual([]);
+
+            subscription = computed.subscribe(subFunc);
+            data('B');
+            expect(computed()).toEqual('B');
+            ko.processAllDeferredUpdates();
+            expect(notifiedValues).toEqual(['B']);
+        });
+
         it('Should invoke the read function (and trigger notifications) if the write function updates computed observables', function() {
             var observable = ko.observable();
             var computed = ko.computed({
