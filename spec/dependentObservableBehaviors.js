@@ -1,23 +1,24 @@
 
 describe('Dependent Observable', function() {
     it('Should be subscribable', function () {
-        var instance = new ko.dependentObservable(function () { });
+        var instance = ko.computed(function () { });
         expect(ko.isSubscribable(instance)).toEqual(true);
     });
 
     it('Should advertise that instances are observable', function () {
-        var instance = new ko.dependentObservable(function () { });
+        var instance = ko.computed(function () { });
         expect(ko.isObservable(instance)).toEqual(true);
     });
 
     it('Should advertise that instances are computed', function () {
-        var instance = new ko.dependentObservable(function () { });
+        var instance = ko.computed(function () { });
         expect(ko.isComputed(instance)).toEqual(true);
     });
 
     it('Should advertise that instances cannot have values written to them', function () {
-        var instance = new ko.dependentObservable(function () { });
+        var instance = ko.computed(function () { });
         expect(ko.isWriteableObservable(instance)).toEqual(false);
+        expect(ko.isWritableObservable(instance)).toEqual(false);
     });
 
     it('Should require an evaluator function as constructor param', function () {
@@ -131,6 +132,17 @@ describe('Dependent Observable', function() {
     it('Should be able to use \'peek\' on an observable to avoid a dependency', function() {
         var observable = ko.observable(1),
             computed = ko.computed(function () { return observable.peek() + 1; });
+        expect(computed()).toEqual(2);
+
+        observable(50);
+        expect(computed()).toEqual(2);    // value wasn't changed
+    });
+
+    it('Should be able to use \'ko.ignoreDependencies\' within a computed to avoid dependencies', function() {
+        var observable = ko.observable(1),
+            computed = ko.dependentObservable(function () {
+                return ko.ignoreDependencies(function() { return observable() + 1 } );
+            });
         expect(computed()).toEqual(2);
 
         observable(50);
@@ -367,6 +379,27 @@ describe('Dependent Observable', function() {
         data(42);
         ko.processAllDeferredUpdates();
         expect(result()).toEqual(42);
+    });
+
+    it('Should fire "awake" event when deferred computed is first evaluated', function() {
+        var data = ko.observable('A'),
+            computed = ko.computed({ read: data, deferEvaluation: true });
+
+        var notifySpy = jasmine.createSpy('notifySpy');
+        computed.subscribe(notifySpy, null, 'awake');
+
+        expect(notifySpy).not.toHaveBeenCalled();
+
+        expect(computed()).toEqual('A');
+        expect(notifySpy).toHaveBeenCalledWith('A');
+        expect(notifySpy.calls.length).toBe(1);
+
+        // Subscribing or updating data shouldn't trigger any more notifications
+        notifySpy.reset();
+        computed.subscribe(function() {});
+        data('B');
+        computed();
+        expect(notifySpy).not.toHaveBeenCalled();
     });
 
     it('Should prevent recursive calling of read function', function() {

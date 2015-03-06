@@ -72,13 +72,18 @@ describe('Components: Component binding', function() {
         expect(testNode.childNodes[0].childNodes[0]).not.toBe(testTemplate[0]);
     });
 
-    it('Passes params and componentInfo (with prepopulated element) to the component\'s viewmodel factory', function() {
+    it('Passes params and componentInfo (with prepopulated element and templateNodes) to the component\'s viewmodel factory', function() {
         var componentConfig = {
             template: '<div data-bind="text: 123">I have been prepopulated and not bound yet</div>',
             viewModel: {
                 createViewModel: function(params, componentInfo) {
                     expect(componentInfo.element).toContainText('I have been prepopulated and not bound yet');
                     expect(params).toBe(testComponentParams);
+                    expect(componentInfo.templateNodes.length).toEqual(3);
+                    expect(componentInfo.templateNodes[0]).toContainText('Here are some ');
+                    expect(componentInfo.templateNodes[1]).toContainText('template');
+                    expect(componentInfo.templateNodes[2]).toContainText(' nodes');
+                    expect(componentInfo.templateNodes[1].tagName.toLowerCase()).toEqual('em');
 
                     //verify that createViewModel is the same function and was called with the component definition as the context
                     expect(this.createViewModel).toBe(componentConfig.viewModel.createViewModel);
@@ -89,6 +94,7 @@ describe('Components: Component binding', function() {
                 }
             }
         };
+        testNode.innerHTML = '<div data-bind="component: testComponentBindingValue">Here are some <em>template</em> nodes</div>';
 
         ko.components.register(testComponentName, componentConfig);
         ko.applyBindings(outerViewModel, testNode);
@@ -106,6 +112,56 @@ describe('Components: Component binding', function() {
         expect(testNode.childNodes[0]).toContainHtml('<div data-bind="text: myvalue">some parameter value</div>');
     });
 
+    it('Injects and binds the component synchronously if it is flagged as synchronous and loads synchronously', function() {
+        ko.components.register(testComponentName, {
+            synchronous: true,
+            template: '<div data-bind="text: myvalue"></div>',
+            viewModel: function() { this.myvalue = 123; }
+        });
+
+        // Notice the absence of any 'jasmine.Clock.tick' call here. This is synchronous.
+        ko.applyBindings(outerViewModel, testNode);
+        expect(testNode.childNodes[0]).toContainHtml('<div data-bind="text: myvalue">123</div>');
+    });
+
+    it('Injects and binds the component synchronously if it is flagged as synchronous and already cached, even if it previously loaded asynchronously', function() {
+        // Set up a component that loads asynchonously, but is flagged as being injectable synchronously
+        this.restoreAfter(window, 'require');
+        var requireCallbacks = {};
+        window.require = function(moduleNames, callback) {
+            expect(moduleNames[0]).toBe('testViewModelModule');
+            setTimeout(function() {
+                var constructor = function(params) {
+                    this.viewModelProperty = params;
+                };
+                callback(constructor);
+            }, 0);
+        };
+
+        ko.components.register(testComponentName, {
+            synchronous: true,
+            template: '<div data-bind="text: viewModelProperty"></div>',
+            viewModel: { require: 'testViewModelModule' }
+        });
+
+        var testList = ko.observableArray(['first']);
+        testNode.innerHTML = '<div data-bind="foreach: testList">' +
+                                '<div data-bind="component: { name: \'test-component\', params: $data }"></div>' +
+                             '</div>';
+
+        // First injection is async, because the loader completes asynchronously
+        ko.applyBindings({ testList: testList }, testNode);
+        expect(testNode.childNodes[0]).toContainText('');
+        jasmine.Clock.tick(0);
+        expect(testNode.childNodes[0]).toContainText('first');
+
+        // Second (cached) injection is synchronous, because the component config says so.
+        // Notice the absence of any 'jasmine.Clock.tick' call here. This is synchronous.
+        testList.push('second');
+        ko.processAllDeferredBindingUpdates();
+        expect(testNode.childNodes[0]).toContainText('firstsecond', /* ignoreSpaces */ true); // Ignore spaces because old-IE is inconsistent
+    });
+
     it('Creates a binding context with the correct parent', function() {
         ko.components.register(testComponentName, {
             template: 'Parent is outer view model: <span data-bind="text: $parent.isOuterViewModel"></span>'
@@ -114,6 +170,43 @@ describe('Components: Component binding', function() {
         jasmine.Clock.tick(1);
 
         expect(testNode.childNodes[0]).toContainText('Parent is outer view model: true');
+    });
+
+    it('Creates a binding context with $componentTemplateNodes giving the original child nodes', function() {
+        ko.components.register(testComponentName, {
+            template: 'Start<span data-bind="template: { nodes: $componentTemplateNodes }"></span>End'
+        });
+        testNode.innerHTML = '<div data-bind="component: testComponentBindingValue"><em>original</em> child nodes</div>';
+        ko.applyBindings(outerViewModel, testNode);
+        jasmine.Clock.tick(1);
+
+        expect(testNode.childNodes[0]).toContainHtml('start<span data-bind="template: { nodes: $componenttemplatenodes }"><em>original</em> child nodes</span>end');
+    });
+
+    it('Creates a binding context with $component to reference the closest component viewmodel', function() {
+        this.after(function() {
+            ko.components.unregister('sub-component');
+        });
+
+        ko.components.register(testComponentName, {
+            template: '<span data-bind="with: { childContext: 123 }">'
+                          + 'In child context <!-- ko text: childContext --><!-- /ko -->, '
+                          + 'inside component with property <!-- ko text: $component.componentProp --><!-- /ko -->. '
+                          + '<div data-bind="component: \'sub-component\'"></div>'
+                      + '</span>',
+            viewModel: function() { return { componentProp: 456 }; }
+        });
+
+        // See it works with nesting - $component always refers to the *closest* component root
+        ko.components.register('sub-component', {
+            template: 'Now in sub-component with property <!-- ko text: $component.componentProp --><!-- /ko -->.',
+            viewModel: function() { return { componentProp: 789 }; }
+        });
+
+        ko.applyBindings(outerViewModel, testNode);
+        jasmine.Clock.tick(1);
+
+        expect(testNode.childNodes[0]).toContainText('In child context 123, inside component with property 456. Now in sub-component with property 789.', /* ignoreSpaces */ true); // Ignore spaces because old-IE is inconsistent
     });
 
     it('Passes nonobservable params to the component', function() {
@@ -347,6 +440,71 @@ describe('Components: Component binding', function() {
         expect(secondViewModelInstance).not.toBe(firstViewModelInstance);
     });
 
+    it('Is possible to pass expressions that can vary observably and evaluate as writable observable instances', function() {
+        // This spec is copied, with small modifications, from customElementBehaviors.js to show that the same component
+        // definition can be used with the component binding and with custom elements.
+        var constructorCallCount = 0;
+        ko.components.register('test-component', {
+            template: '<input data-bind="value: myval"/>',
+            viewModel: function(params) {
+                constructorCallCount++;
+                this.myval = params.somevalue;
+
+                // See we received a writable observable
+                expect(ko.isWritableObservable(this.myval)).toBe(true);
+            }
+        });
+
+        // Bind to a viewmodel with nested observables; see the expression is evaluated as expected
+        // The component itself doesn't have to know or care that the supplied value is nested - the
+        // custom element syntax takes care of producing a single computed property that gives the
+        // unwrapped inner value.
+        var innerObservable = ko.observable('inner1'),
+            outerObservable = ko.observable({ inner: innerObservable });
+        testNode.innerHTML = '<div data-bind="component: { name: \'' + testComponentName + '\', params: { somevalue: outer().inner } }"></div>';
+        ko.applyBindings({ outer: outerObservable }, testNode);
+        jasmine.Clock.tick(1);
+        expect(testNode.childNodes[0].childNodes[0].value).toEqual('inner1');
+        expect(outerObservable.getSubscriptionsCount()).toBe(1);
+        expect(innerObservable.getSubscriptionsCount()).toBe(1);
+        expect(constructorCallCount).toBe(1);
+
+        // See we can mutate the inner value and see the result show up
+        innerObservable('inner2');
+        ko.processAllDeferredBindingUpdates();
+        expect(testNode.childNodes[0].childNodes[0].value).toEqual('inner2');
+        expect(outerObservable.getSubscriptionsCount()).toBe(1);
+        expect(innerObservable.getSubscriptionsCount()).toBe(1);
+        expect(constructorCallCount).toBe(1);
+
+        // See that we can mutate the observable from within the component
+        testNode.childNodes[0].childNodes[0].value = 'inner3';
+        ko.utils.triggerEvent(testNode.childNodes[0].childNodes[0], 'change');
+        expect(innerObservable()).toEqual('inner3');
+
+        // See we can mutate the outer value and see the result show up (cleaning subscriptions to the old inner value)
+        var newInnerObservable = ko.observable('newinner');
+        outerObservable({ inner: newInnerObservable });
+        jasmine.Clock.tick(1);              // modifying the outer observable causes the component to reload, which happens asynchronously
+        expect(testNode.childNodes[0].childNodes[0].value).toEqual('newinner');
+        expect(outerObservable.getSubscriptionsCount()).toBe(1);
+        expect(innerObservable.getSubscriptionsCount()).toBe(0);
+        expect(newInnerObservable.getSubscriptionsCount()).toBe(1);
+        expect(constructorCallCount).toBe(2);
+
+        // See that we can mutate the new observable from within the component
+        testNode.childNodes[0].childNodes[0].value = 'newinner2';
+        ko.utils.triggerEvent(testNode.childNodes[0].childNodes[0], 'change');
+        expect(newInnerObservable()).toEqual('newinner2');
+        expect(innerObservable()).toEqual('inner3');    // original one hasn't changed
+
+        // See that subscriptions are disposed when the component is
+        ko.cleanNode(testNode);
+        expect(outerObservable.getSubscriptionsCount()).toBe(0);
+        expect(innerObservable.getSubscriptionsCount()).toBe(0);
+        expect(newInnerObservable.getSubscriptionsCount()).toBe(0);
+    });
+
     it('Disposes the viewmodel if the element is cleaned', function() {
         function testViewModel() { }
         testViewModel.prototype.dispose = function() { this.wasDisposed = true; };
@@ -386,46 +544,6 @@ describe('Components: Component binding', function() {
         jasmine.Clock.tick(1);
         expect(numConstructorCalls).toBe(0);
         expect(testNode.firstChild).toContainHtml('');
-    });
-
-    it('Does not automatically subscribe to any observables you evaluate during createViewModel or a viewmodel constructor', function() {
-        // This clarifies that, if a developer wants to react when some observable parameter
-        // changes, then it's their responsibility to subscribe to it or use a computed.
-        // We don't rebuild the component just because you evaluated an observable from inside
-        // your viewmodel constructor, just like we don't if you evaluate one elsewhere
-        // in the viewmodel code.
-
-        // Note that currently, this behavior happens as a fluke of the implementation: because
-        // component loads always complete asynchronously, any observables accessed inside
-        // createViewModel or later don't get registered as dependencies on the binding computed.
-        // If we ever change that to support synchronous component loads, this test would
-        // start failing because we'd have broken this behavior.
-
-        var createViewModelCallCount = 0;
-        ko.components.register(testComponentName, {
-            viewModel: {
-                createViewModel: function(params, componentInfo) {
-                    createViewModelCallCount++;
-                    return { someData: params.someData() };
-                }
-            },
-            template: '<div data-bind="text: someData"></div>'
-        });
-
-        // Bind an instance
-        testComponentParams.someData = ko.observable('First');
-        ko.applyBindings(outerViewModel, testNode);
-        jasmine.Clock.tick(1);
-        expect(testNode).toContainText('First');
-        expect(createViewModelCallCount).toBe(1);
-
-        // See that changing the observable will have no effect, because the viewmodel
-        // itself doesn't subscribe to it.
-        testComponentParams.someData('Second');
-        jasmine.Clock.tick(1);
-        expect(testNode).toContainText('First');
-        expect(testComponentParams.someData.getSubscriptionsCount()).toBe(0);
-        expect(createViewModelCallCount).toBe(1); // ... and we didn't rebuild the component
     });
 
     it('Disregards component load completions that are no longer relevant', function() {
@@ -533,5 +651,83 @@ describe('Components: Component binding', function() {
         testComponentParams.someData(456);
         ko.processAllDeferredBindingUpdates();
         expect(testNode).toContainText('Hello! Your param is 456 Goodbye.');
+    });
+
+    describe('Does not automatically subscribe to any observables you evaluate during createViewModel or a viewmodel constructor', function() {
+        // This clarifies that, if a developer wants to react when some observable parameter
+        // changes, then it's their responsibility to subscribe to it or use a computed.
+        // We don't rebuild the component just because you evaluated an observable from inside
+        // your viewmodel constructor, just like we don't if you evaluate one elsewhere
+        // in the viewmodel code.
+
+        it('when loaded asynchronously', function() {
+            ko.components.register(testComponentName, {
+                viewModel: {
+                    createViewModel: function(params, componentInfo) {
+                        return { someData: params.someData() };
+                    }
+                },
+                template: '<div data-bind="text: someData"></div>'
+            });
+
+            // Bind an instance
+            testComponentParams.someData = ko.observable('First');
+            ko.applyBindings(outerViewModel, testNode);
+            jasmine.Clock.tick(1);
+            expect(testNode).toContainText('First');
+            expect(testComponentParams.someData.getSubscriptionsCount()).toBe(0);
+
+            // See that changing the observable will have no effect
+            testComponentParams.someData('Second');
+            jasmine.Clock.tick(1);
+            expect(testNode).toContainText('First');
+        });
+
+        it('when loaded synchronously', function() {
+            ko.components.register(testComponentName, {
+                synchronous: true,
+                viewModel: {
+                    createViewModel: function(params, componentInfo) {
+                        return { someData: params.someData() };
+                    }
+                },
+                template: '<div data-bind="text: someData"></div>'
+            });
+
+            // Bind an instance
+            testComponentParams.someData = ko.observable('First');
+            ko.applyBindings(outerViewModel, testNode);
+            expect(testNode).toContainText('First');
+            expect(testComponentParams.someData.getSubscriptionsCount()).toBe(0);
+
+            // See that changing the observable will have no effect
+            testComponentParams.someData('Second');
+            expect(testNode).toContainText('First');
+        });
+
+        it('when cached component is loaded synchronously', function() {
+            ko.components.register(testComponentName, {
+                synchronous: true,
+                viewModel: {
+                    createViewModel: function(params, componentInfo) {
+                        return { someData: params.someData() };
+                    }
+                },
+                template: '<div data-bind="text: someData"></div>'
+            });
+
+            // Load the component manually so that the next load happens from the cache
+            ko.components.get(testComponentName, function() {});
+
+            // Bind an instance
+            testComponentParams.someData = ko.observable('First');
+            ko.applyBindings(outerViewModel, testNode);
+            expect(testNode).toContainText('First');
+            expect(testComponentParams.someData.getSubscriptionsCount()).toBe(0);
+
+            // See that changing the observable will have no effect
+            testComponentParams.someData('Second');
+            expect(testNode).toContainText('First');
+        });
     });
 });
