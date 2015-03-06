@@ -2,7 +2,7 @@
  * @license Deferred Updates plugin for Knockout http://knockoutjs.com/
  * (c) Michael Best, Steven Sanderson
  * License: MIT (http://www.opensource.org/licenses/mit-license.php)
- * Version 3.3.0
+ * Version 3.3.1
  */
 
 (function(factory) {
@@ -294,8 +294,9 @@ subscription = null;
 var rateLimitedBeforeChangeName, rateLimitedChangeName;
 if (subLimitName && ko.extenders.rateLimit) {
     var rateLimitedSubscribable = new ko.subscribable().extend({rateLimit:1});
+    rateLimitedSubscribable[subLimitName] = null; // prevent the limit function from confusing the below code
     rateLimitedChangeName = findNameMethodSignatureContaining(rateLimitedSubscribable, '=!0') || '_rateLimitedChange';
-    rateLimitedBeforeChangeName = findNameMethodSignatureContaining(rateLimitedSubscribable, '||(') || '_rateLimitedBeforeChange';
+    rateLimitedBeforeChangeName = findNameMethodSignatureContaining(rateLimitedSubscribable, '"beforeChange")') || '_rateLimitedBeforeChange';
     rateLimitedSubscribable = null;
 }
 
@@ -313,6 +314,7 @@ subscribable = null;
 var beforeSubscriptionAddName, afterSubscriptionRemoveName;
 if (ko.pureComputed) {
     var pComp = ko.pureComputed(function() {});
+    pComp[koProtoName] = null; // prevent the ko.computed pointer from confusing the below code
     beforeSubscriptionAddName = findNameMethodSignatureContaining(pComp, versionNumberName ? '"awake"' : '!1,') || 'beforeSubscriptionAdd';
     afterSubscriptionRemoveName = findNameMethodSignatureContaining(pComp, versionNumberName ? '"asleep"' : '()||') || 'afterSubscriptionRemove';
     pComp = null;
