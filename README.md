@@ -1,3 +1,5 @@
+**Note: As of version 3.4.0, Knockout includes native support for deferred updates. See http://knockoutjs.com/documentation/deferred-updates.html**
+
 ### **Deferred Updates** plugin for [Knockout](http://knockoutjs.com/)
 
 This plugin/patch modifies parts of Knockout’s observable/subscription system to use **deferred updates**.
